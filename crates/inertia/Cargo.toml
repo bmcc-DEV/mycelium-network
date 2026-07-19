@@ -1,0 +1,11 @@
+[package]
+name = "inertia"
+description = "CI/CD que viaja pela rede: Vectors executados onde há ATP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mycelium-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

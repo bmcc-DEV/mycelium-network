@@ -1,0 +1,12 @@
+[package]
+name = "plasma"
+description = "Orquestração auto-organizada: Ions que orbitam o micélio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mycelium-core = { workspace = true }
+vacuum = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

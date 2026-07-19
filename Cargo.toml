@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mycelium-core",
+    "crates/mycelium-hyphae",
+    "crates/mycelium-pheromones",
+    "crates/mycelium-nutrients",
+    "crates/mycelium-sporebank",
+    "crates/mycelium-node",
+    "crates/giggs",
+    "crates/thefield",
+    "crates/inertia",
+    "crates/vacuum",
+    "crates/singularity",
+    "crates/isotope",
+    "crates/entropy",
+    "crates/plasma",
+    "cli/mycelium-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://mycelium.network/lattice"
+authors = ["The Lattice"]
+
+[workspace.dependencies]
+mycelium-core = { path = "crates/mycelium-core" }
+mycelium-hyphae = { path = "crates/mycelium-hyphae" }
+mycelium-pheromones = { path = "crates/mycelium-pheromones" }
+mycelium-nutrients = { path = "crates/mycelium-nutrients" }
+mycelium-sporebank = { path = "crates/mycelium-sporebank" }
+mycelium-node = { path = "crates/mycelium-node" }
+giggs = { path = "crates/giggs" }
+thefield = { path = "crates/thefield" }
+inertia = { path = "crates/inertia" }
+vacuum = { path = "crates/vacuum" }
+singularity = { path = "crates/singularity" }
+isotope = { path = "crates/isotope" }
+entropy = { path = "crates/entropy" }
+plasma = { path = "crates/plasma" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+blake3 = "1.8"
+hex = "0.4"
+rand = "0.8"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "sync", "io-util", "net"] }
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive", "env"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls", "stream", "blocking"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+libp2p = { version = "0.56", features = [
+    "tokio",
+    "quic",
+    "tcp",
+    "noise",
+    "yamux",
+    "kad",
+    "gossipsub",
+    "mdns",
+    "identify",
+    "macros",
+    "ed25519",
+    "dns",
+] }
+
+[profile.release]
+lto = "thin"

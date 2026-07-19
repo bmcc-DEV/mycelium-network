@@ -1,0 +1,12 @@
+[package]
+name = "entropy"
+description = "Segredos que existem apenas no momento do acesso: Shades M-de-N (Shamir sobre GF(256))"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mycelium-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }

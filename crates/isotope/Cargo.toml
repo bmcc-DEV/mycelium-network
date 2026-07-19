@@ -1,0 +1,11 @@
+[package]
+name = "isotope"
+description = "Banco sharded por natureza: Nuclei, Decay queries e CRDT last-writer-wins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mycelium-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

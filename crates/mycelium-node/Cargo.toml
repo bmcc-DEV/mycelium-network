@@ -1,0 +1,33 @@
+[package]
+name = "mycelium-node"
+description = "Organismo do nó: daemon persistente, protocolo Lattice e controle local"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mycelium-core = { workspace = true }
+mycelium-hyphae = { workspace = true }
+mycelium-pheromones = { workspace = true }
+mycelium-nutrients = { workspace = true }
+mycelium-sporebank = { workspace = true }
+giggs = { workspace = true }
+thefield = { workspace = true }
+inertia = { workspace = true }
+vacuum = { workspace = true }
+singularity = { workspace = true }
+isotope = { workspace = true }
+entropy = { workspace = true }
+plasma = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+hex = { workspace = true }
+libp2p = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"
