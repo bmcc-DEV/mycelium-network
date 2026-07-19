@@ -1,4 +1,7 @@
 //! Plano de controle local: Unix socket + JSON linha-a-linha.
+//!
+//! Se `MYCELIUM_CONTROL_TOKEN` estiver definido no daemon, cada pedido
+//! deve incluir `"auth": "<token>"` no JSON.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -38,7 +41,7 @@ pub enum Request {
         #[serde(default)]
         clock: Option<u64>,
     },
-    /// Lê um átomo do Nucleus local.
+    /// Lê um átomo do Nucleus Isotope local.
     IsotopeGet {
         key: String,
     },
@@ -94,6 +97,7 @@ pub struct ControlMsg {
 pub async fn serve(
     sock_path: impl AsRef<Path>,
     tx: mpsc::Sender<ControlMsg>,
+    required_token: Option<String>,
 ) -> Result<(), String> {
     let path = sock_path.as_ref();
     let _ = std::fs::remove_file(path);
@@ -101,22 +105,46 @@ pub async fn serve(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let listener = UnixListener::bind(path).map_err(|e| e.to_string())?;
-    tracing::info!(path = %path.display(), "control socket listening");
+    if required_token.is_some() {
+        tracing::info!(path = %path.display(), "control socket listening (auth obrigatória)");
+    } else {
+        tracing::info!(path = %path.display(), "control socket listening");
+    }
 
     loop {
         let (stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
         let tx = tx.clone();
+        let token = required_token.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_client(stream, tx).await {
+            if let Err(e) = handle_client(stream, tx, token).await {
                 tracing::warn!("control client error: {e}");
             }
         });
     }
 }
 
+fn parse_request_line(line: &str, required: Option<&str>) -> Result<Request, String> {
+    let mut value: serde_json::Value =
+        serde_json::from_str(line).map_err(|e| format!("pedido inválido: {e}"))?;
+    if let Some(exp) = required {
+        let got = value
+            .get("auth")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if got != exp {
+            return Err("auth inválida ou ausente (defina MYCELIUM_CONTROL_TOKEN)".into());
+        }
+    }
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("auth");
+    }
+    serde_json::from_value(value).map_err(|e| format!("pedido inválido: {e}"))
+}
+
 async fn handle_client(
     stream: UnixStream,
     tx: mpsc::Sender<ControlMsg>,
+    required_token: Option<String>,
 ) -> Result<(), String> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -124,13 +152,10 @@ async fn handle_client(
         if line.trim().is_empty() {
             continue;
         }
-        let request: Request = match serde_json::from_str(&line) {
+        let request = match parse_request_line(&line, required_token.as_deref()) {
             Ok(r) => r,
-            Err(e) => {
-                let resp = Response::Err {
-                    message: format!("pedido inválido: {e}"),
-                };
-                write_response(&mut writer, &resp).await?;
+            Err(message) => {
+                write_response(&mut writer, &Response::Err { message }).await?;
                 continue;
             }
         };
@@ -153,9 +178,6 @@ async fn handle_client(
             message: "sem resposta do organismo".into(),
         });
         write_response(&mut writer, &resp).await?;
-        if matches!(resp, Response::Ok { .. }) {
-            // Shutdown é tratado pelo organismo; cliente pode sair.
-        }
     }
     Ok(())
 }
@@ -184,7 +206,15 @@ pub async fn call(sock_path: impl AsRef<Path>, request: Request) -> Result<Respo
             )
         })?;
     let (reader, mut writer) = stream.into_split();
-    let mut line = serde_json::to_string(&request).map_err(|e| e.to_string())?;
+    let mut value = serde_json::to_value(&request).map_err(|e| e.to_string())?;
+    if let Ok(token) = std::env::var("MYCELIUM_CONTROL_TOKEN") {
+        if !token.is_empty() {
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("auth".into(), serde_json::Value::String(token));
+            }
+        }
+    }
+    let mut line = serde_json::to_string(&value).map_err(|e| e.to_string())?;
     line.push('\n');
     writer
         .write_all(line.as_bytes())
@@ -197,4 +227,21 @@ pub async fn call(sock_path: impl AsRef<Path>, request: Request) -> Result<Respo
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "daemon fechou a conexão sem responder".to_string())?;
     serde_json::from_str(&resp_line).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_required_rejects_missing() {
+        let err = parse_request_line(r#"{"cmd":"status"}"#, Some("secret")).unwrap_err();
+        assert!(err.contains("auth"));
+    }
+
+    #[test]
+    fn auth_ok_strips_field() {
+        let req = parse_request_line(r#"{"auth":"secret","cmd":"status"}"#, Some("secret")).unwrap();
+        assert!(matches!(req, Request::Status));
+    }
 }

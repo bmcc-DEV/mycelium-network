@@ -58,6 +58,8 @@ pub struct HyphaeConfig {
     pub kad_bootstrap: bool,
     /// Descoberta local via mDNS. Desligue para forçar seed book / bootstrap.
     pub enable_mdns: bool,
+    /// IP público anunciado quando listen é `0.0.0.0` (NAT / seed).
+    pub announce_ip: Option<String>,
 }
 
 impl Default for HyphaeConfig {
@@ -68,6 +70,7 @@ impl Default for HyphaeConfig {
             bootstrap: Vec::new(),
             kad_bootstrap: false,
             enable_mdns: true,
+            announce_ip: None,
         }
     }
 }
@@ -145,6 +148,15 @@ struct SubstrateBehaviour {
     identify: identify::Behaviour,
 }
 
+fn multiaddr_tcp_port(addr: &Multiaddr) -> Option<u16> {
+    for proto in addr.iter() {
+        if let libp2p::multiaddr::Protocol::Tcp(port) = proto {
+            return Some(port);
+        }
+    }
+    None
+}
+
 /// Um nó do micélio: swarm libp2p + estado dos links vivos.
 pub struct HyphaeNode {
     swarm: Swarm<SubstrateBehaviour>,
@@ -154,6 +166,7 @@ pub struct HyphaeNode {
     listen_addrs: Vec<Multiaddr>,
     metrics: HyphaMetrics,
     last_decay: Instant,
+    announce_ip: Option<String>,
 }
 
 impl HyphaeNode {
@@ -269,6 +282,7 @@ impl HyphaeNode {
             listen_addrs: Vec::new(),
             metrics: HyphaMetrics::default(),
             last_decay: Instant::now(),
+            announce_ip: config.announce_ip.clone(),
         };
 
         let do_kad = config.kad_bootstrap && !config.bootstrap.is_empty();
@@ -302,10 +316,11 @@ impl HyphaeNode {
     }
 
     /// Endereços com `/p2p/<PeerId>` embutido — prontos para dial remoto
-    /// (loopback, LAN e IPs públicos observados; `0.0.0.0` → `127.0.0.1`).
+    /// (`0.0.0.0` → `127.0.0.1` + opcional `--announce-ip` em todas as portas TCP).
     pub fn dialable_addrs(&self) -> Vec<Multiaddr> {
         let peer = self.peer_id();
         let mut out = Vec::new();
+        let mut tcp_ports: Vec<u16> = Vec::new();
         for a in &self.listen_addrs {
             let s = a.to_string();
             if s.contains("/ip4/0.0.0.0/") {
@@ -322,7 +337,21 @@ impl HyphaeNode {
             if !addr.to_string().contains("/p2p/") {
                 addr.push(libp2p::multiaddr::Protocol::P2p(peer));
             }
-            out.push(addr);
+            out.push(addr.clone());
+            // Extrai porta TCP para anunciar IP público (libp2p não reporta 0.0.0.0).
+            if let Some(port) = multiaddr_tcp_port(&addr) {
+                if !tcp_ports.contains(&port) {
+                    tcp_ports.push(port);
+                }
+            }
+        }
+        if let Some(ip) = &self.announce_ip {
+            for port in tcp_ports {
+                let s = format!("/ip4/{ip}/tcp/{port}/p2p/{peer}");
+                if let Ok(addr) = s.parse::<Multiaddr>() {
+                    out.push(addr);
+                }
+            }
         }
         out.sort_by_key(|a| a.to_string());
         out.dedup();

@@ -52,6 +52,8 @@ pub struct OrganismConfig {
     pub public_bootstrap: bool,
     pub bootstrap_url: Option<String>,
     pub enable_mdns: bool,
+    /// IP público anunciado (NAT / seed).
+    pub announce_ip: Option<String>,
 }
 
 pub struct Organism {
@@ -128,12 +130,16 @@ impl Organism {
             .collect();
 
         let bootstrap_addrs = seed_book.multiaddrs();
+        let announce_ip = config
+            .announce_ip
+            .or_else(|| std::env::var("MYCELIUM_ANNOUNCE_IP").ok());
         let mut hyphae = HyphaeNode::germinate_with(HyphaeConfig {
             seed: Some(gland.seed()),
             listen,
             bootstrap: bootstrap_addrs,
             kad_bootstrap: !seed_book.is_empty(),
             enable_mdns: config.enable_mdns,
+            announce_ip,
         })?;
         hyphae.restore_metrics(state.hypha_metrics.clone());
 
@@ -1039,12 +1045,13 @@ impl Organism {
                                     Err(e) => tracing::warn!("absorb DHT: {e}"),
                                 }
                                 let _ = self.persist();
-                            } else if let Some(id) = content_id_from_layer_dht_key(&key) {
+                            } else if let Some(layer_id) = content_id_from_layer_dht_key(&key) {
                                 match LayerStore::open(self.store.layers_dir()) {
                                     Ok(store) => match store.put(&value) {
                                         Ok(stored) => {
                                             tracing::info!(
                                                 layer = %stored.short(),
+                                                expected = %layer_id.short(),
                                                 "layer recuperada do DHT"
                                             );
                                         }

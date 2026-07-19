@@ -1,0 +1,26 @@
+[Unit]
+Description=Mycelium Network public seed
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mycelium
+Group=mycelium
+Environment=MYCELIUM_HOME=/var/lib/mycelium-seed
+Environment=RUST_LOG=info
+Environment=MYCELIUM_ANNOUNCE_IP=
+# Environment=MYCELIUM_CONTROL_TOKEN=change-me
+ExecStartPre=/usr/local/bin/mycelium --home ${MYCELIUM_HOME} sprout --contribute 2cpu,4gb,100gb
+ExecStart=/usr/local/bin/mycelium --home ${MYCELIUM_HOME} daemon \
+  --listen /ip4/0.0.0.0/tcp/4001 \
+  --announce-ip ${MYCELIUM_ANNOUNCE_IP} \
+  --no-mdns \
+  --horizon-port 7474 \
+  --contribute 2cpu,4gb,100gb
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

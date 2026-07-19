@@ -44,6 +44,7 @@ pub async fn serve_horizon(
 
     let app = Router::new()
         .route("/", any(root))
+        .route("/console", any(console))
         .route("/health", any(health))
         .route("/{*path}", any(proxy))
         .with_state(table);
@@ -83,8 +84,64 @@ async fn root(State(table): State<HorizonTable>) -> impl IntoResponse {
         "hosts": hosts,
         "ions": ions.iter().map(|(n, u)| serde_json::json!({"ion": n, "upstream": u})).collect::<Vec<_>>(),
         "hint": "GET /{ion}/  — rizomorfo proxya até a Chamber",
+        "console": "/console",
     });
     (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], body.to_string())
+}
+
+/// UI mínima do Event Horizon — lista ions e links.
+async fn console(State(table): State<HorizonTable>) -> impl IntoResponse {
+    let ions = {
+        let t = table.read().unwrap();
+        t.ion_upstreams()
+    };
+    let mut items = String::new();
+    if ions.is_empty() {
+        items.push_str("<li><em>nenhum ion em órbita</em></li>");
+    } else {
+        for (name, upstream) in &ions {
+            items.push_str(&format!(
+                "<li><a href=\"/{name}/\">{name}</a> \
+                 <span style=\"opacity:.6\">→ {upstream}</span> \
+                 · <a href=\"/{name}/index.html\">html</a></li>"
+            ));
+        }
+    }
+    let html = format!(
+        r#"<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Mycelium — Event Horizon</title>
+<style>
+  :root {{ --bg:#0d1f17; --fg:#d7f5e3; --accent:#3d8f6a; --muted:#7aa892; }}
+  body {{ margin:0; min-height:100vh; font-family:"IBM Plex Sans",Segoe UI,sans-serif;
+         background:radial-gradient(1200px 600px at 10% -10%,#1a3d2e,var(--bg));
+         color:var(--fg); padding:2.5rem clamp(1rem,4vw,3rem); }}
+  h1 {{ font-family:"IBM Plex Serif",Georgia,serif; font-weight:500; letter-spacing:-.02em;
+       font-size:clamp(1.8rem,4vw,2.6rem); margin:0 0 .4rem; }}
+  p {{ color:var(--muted); max-width:36rem; line-height:1.5; }}
+  ul {{ list-style:none; padding:0; margin:2rem 0; }}
+  li {{ padding:.85rem 0; border-bottom:1px solid rgba(125,180,150,.2); }}
+  a {{ color:var(--accent); text-decoration:none; font-weight:600; }}
+  a:hover {{ text-decoration:underline; }}
+  .meta {{ font-size:.85rem; color:var(--muted); margin-top:2rem; }}
+</style>
+</head>
+<body>
+  <h1>Event Horizon</h1>
+  <p>Console do Singularity — ions em órbita neste nó. Cada link passa pelo rizomorfo até a Vacuum Chamber.</p>
+  <ul>{items}</ul>
+  <p class="meta"><a href="/">JSON</a> · <a href="/health">health</a></p>
+</body>
+</html>"#
+    );
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        html,
+    )
 }
 
 async fn proxy(State(table): State<HorizonTable>, req: Request) -> Response {

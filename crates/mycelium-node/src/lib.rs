@@ -29,6 +29,8 @@ pub struct DaemonOptions {
     pub bootstrap_url: Option<String>,
     /// Se true, desliga mDNS (só seeds/bootstrap).
     pub no_mdns: bool,
+    /// IP público anunciado quando listen é 0.0.0.0.
+    pub announce_ip: Option<String>,
 }
 
 /// Desperta o daemon: socket de controle + loop do organismo.
@@ -43,13 +45,15 @@ pub async fn run_daemon(home: PathBuf, opts: DaemonOptions) -> Result<(), Organi
         public_bootstrap: opts.public_bootstrap,
         bootstrap_url: opts.bootstrap_url,
         enable_mdns: !opts.no_mdns,
+        announce_ip: opts.announce_ip,
     })?;
     let sock = organism.home().join("mycelium.sock");
+    let token = std::env::var("MYCELIUM_CONTROL_TOKEN").ok().filter(|t| !t.is_empty());
     let (tx, rx) = mpsc::channel(32);
 
     let serve_sock = sock.clone();
     tokio::spawn(async move {
-        if let Err(e) = serve(&serve_sock, tx).await {
+        if let Err(e) = serve(&serve_sock, tx, token).await {
             tracing::error!("control socket: {e}");
         }
     });

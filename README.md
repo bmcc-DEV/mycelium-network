@@ -110,11 +110,14 @@ mycelium.sock       plano de controle do daemon
 ## Publicar um seed
 
 ```bash
-mycelium --home /var/lib/mycelium-seed daemon \
-  --listen /ip4/0.0.0.0/tcp/4001 --no-mdns --contribute 2cpu,4gb,100gb
-./scripts/export-seed.sh /var/lib/mycelium-seed >> seeds/mainnet.txt
-# commit + push; clientes usam --public-bootstrap
+./scripts/run-public-seed.sh          # sobe seed + imprime multiaddr
+# encaminhe TCP 4001 no NAT, depois:
+# edite seeds/mainnet.txt e push
+mycelium daemon --public-bootstrap --no-mdns
 ```
+
+Docs: [docs/ops-seed.md](docs/ops-seed.md) · Console Horizon: `http://127.0.0.1:7474/console`  
+Auth do socket: `MYCELIUM_CONTROL_TOKEN=…`
 
 ## Desenvolvimento
 

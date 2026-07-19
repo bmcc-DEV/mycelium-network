@@ -55,6 +55,9 @@ enum Commands {
         /// Desliga mDNS — discovery só via seed book / --bootstrap.
         #[arg(long = "no-mdns")]
         no_mdns: bool,
+        /// IP público anunciado (quando listen é 0.0.0.0). Env: MYCELIUM_ANNOUNCE_IP.
+        #[arg(long = "announce-ip", env = "MYCELIUM_ANNOUNCE_IP")]
+        announce_ip: Option<String>,
     },
     Status,
     Sow {
@@ -162,6 +165,7 @@ fn main() {
             listen,
             horizon_port,
             no_mdns,
+            announce_ip,
         } => rt.block_on(daemon(
             &home,
             &contribute,
@@ -174,6 +178,7 @@ fn main() {
                 public_bootstrap,
                 bootstrap_url,
                 no_mdns,
+                announce_ip,
             },
         )),
         Commands::Status => rt.block_on(status(&home)),
@@ -322,8 +327,14 @@ async fn daemon(
     if opts.no_mdns {
         println!("[🍄] mDNS desligado — só seed book / bootstrap");
     }
+    if let Some(ip) = &opts.announce_ip {
+        println!("[🍄] Announce IP: {ip}");
+    }
     if !opts.listen.is_empty() {
         println!("[🍄] Listen: {:?}", opts.listen);
+    }
+    if std::env::var("MYCELIUM_CONTROL_TOKEN").ok().filter(|t| !t.is_empty()).is_some() {
+        println!("[🍄] Control socket com auth (MYCELIUM_CONTROL_TOKEN)");
     }
     println!(
         "[🍄] Ctrl-C ou `mycelium --home {} shutdown` para hibernar",

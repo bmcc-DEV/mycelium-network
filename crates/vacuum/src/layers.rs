@@ -99,7 +99,7 @@ impl LayerStore {
     }
 
     pub fn missing<'a>(&self, layers: &'a [ContentId]) -> Vec<&'a ContentId> {
-        layers.iter().filter(|l| !self.has(l)).collect()
+        layers.iter().filter(|id| !self.has(id)).collect()
     }
 
     /// Extrai cada layer (ordem = bottom → top) para `rootfs`.
@@ -110,9 +110,7 @@ impl LayerStore {
     ) -> Result<(), VacuumError> {
         std::fs::create_dir_all(rootfs)?;
         for id in layers {
-            let bytes = self
-                .get(id)
-                .ok_or_else(|| VacuumError::LayerMissing(*id))?;
+            let bytes = self.get(id).ok_or(VacuumError::LayerMissing(*id))?;
             let archive = LayerArchive::decode(&bytes)?;
             archive.apply_to(rootfs)?;
         }
