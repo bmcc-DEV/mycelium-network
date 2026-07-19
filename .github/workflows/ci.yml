@@ -50,6 +50,10 @@ jobs:
         run: ./scripts/lattice-remote-demo.sh
         timeout-minutes: 10
 
+      - name: isotope-decay-demo
+        run: ./scripts/isotope-decay-demo.sh
+        timeout-minutes: 10
+
       - name: horizon-demo
         run: ./scripts/horizon-demo.sh
         timeout-minutes: 8
@@ -62,5 +66,7 @@ jobs:
           path: |
             /tmp/lat-a.log
             /tmp/lat-b.log
+            /tmp/iso-a.log
+            /tmp/iso-b.log
             /tmp/horizon-daemon.log
           if-no-files-found: ignore

@@ -51,7 +51,7 @@ Rede só com seed book (sem mDNS / sem `--bootstrap` manual):
 ./scripts/seedbook-demo.sh
 ```
 
-Demos: `./scripts/e2e-demo.sh` · `./scripts/horizon-demo.sh` · `./scripts/seedbook-demo.sh`
+Demos: `./scripts/e2e-demo.sh` · `./scripts/horizon-demo.sh` · `./scripts/seedbook-demo.sh` · `./scripts/isotope-decay-demo.sh`
 
 ## Fluxo ponta a ponta
 
@@ -75,7 +75,8 @@ Giggs sow Plot → Spore Bank (disco + DHT) → gossip hifas
 | `recall` | Lê Plot local; se ausente, consulta DHT |
 | `bootstrap` | Dial explícito a um peer remoto |
 | `seeds list/add/fetch` | Seed book (bootstrap público) |
-| `isotope-put` / `isotope-get` | Estado Isotope (LWW via hifas) |
+| `isotope-put` / `isotope-get` | Estado Isotope (anel 4 + Decay pelas hifas) |
+| `deploy` | One-shot: sow → signal → URL do Event Horizon |
 | `shutdown` | Hiberna o daemon (estado fica em disco) |
 
 ## Crates

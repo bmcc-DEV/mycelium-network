@@ -85,6 +85,12 @@ pub struct StatusReport {
     /// Átomos no Nucleus Isotope local.
     #[serde(default)]
     pub isotope_atoms: usize,
+    /// Índice do shard Isotope deste nó.
+    #[serde(default)]
+    pub isotope_shard: u32,
+    /// Tamanho do anel Isotope.
+    #[serde(default)]
+    pub isotope_ring: u32,
 }
 
 /// Mensagem interna: pedido + canal de resposta.

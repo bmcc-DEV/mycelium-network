@@ -5,7 +5,7 @@ use crate::protocol::Envelope;
 use crate::store::{IonRecord, NodeStore, OrganismState, StoreError};
 use giggs::{Leaf, Plot};
 use inertia::{Flywheel, Momentum, Thrust, Vector};
-use isotope::{Atom, Nucleus};
+use isotope::{Atom, Nucleus, DEFAULT_RING_SIZE};
 use mycelium_core::{ContentId, NodeId, Nutrient, Resources};
 use mycelium_hyphae::{HyphaEvent, HyphaeConfig, HyphaeNode, SeedBook};
 use mycelium_nutrients::Ledger;
@@ -79,6 +79,8 @@ pub struct Organism {
     build_artifacts: HashMap<ContentId, LayerArchive>,
     /// Vectors remotos já aceitos (evita re-execução).
     remote_done: HashSet<String>,
+    /// Decays em curso (miss local → DecayQuery broadcast).
+    pending_decays: HashSet<String>,
 }
 
 impl Organism {
@@ -158,7 +160,19 @@ impl Organism {
         let mycelium_bin = std::env::current_exe().map_err(|e| OrganismError::Msg(e.to_string()))?;
         let horizon = EventHorizon::shared();
         let records = state.ions.clone();
-        let nucleus = store.load_nucleus();
+        let mut nucleus = store
+            .load_nucleus()
+            .unwrap_or_else(|| Nucleus::for_node(&gland.node_id(), DEFAULT_RING_SIZE));
+        let before = (nucleus.index, nucleus.ring_size);
+        nucleus = nucleus.migrate_to_ring(&gland.node_id(), DEFAULT_RING_SIZE);
+        if (nucleus.index, nucleus.ring_size) != before {
+            tracing::info!(
+                shard = nucleus.index,
+                ring = nucleus.ring_size,
+                "isotope nucleus migrado para anel padrão"
+            );
+            store.save_nucleus(&nucleus)?;
+        }
         let mut org = Self {
             store,
             gland,
@@ -178,6 +192,7 @@ impl Organism {
             nucleus,
             build_artifacts: HashMap::new(),
             remote_done: HashSet::new(),
+            pending_decays: HashSet::new(),
         };
 
         for rec in records {
@@ -256,6 +271,8 @@ impl Organism {
             event_horizon: horizon_url,
             ion_endpoints: endpoints,
             isotope_atoms: self.nucleus.len(),
+            isotope_shard: self.nucleus.index,
+            isotope_ring: self.nucleus.ring_size,
         }
     }
 
@@ -702,7 +719,7 @@ impl Organism {
         key: String,
         value: String,
         clock: Option<u64>,
-    ) -> Result<u64, OrganismError> {
+    ) -> Result<(u64, bool), OrganismError> {
         let clock = clock.unwrap_or_else(|| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -713,9 +730,21 @@ impl Organism {
             value: value.into_bytes(),
             clock,
         };
-        self.nucleus
-            .write(&key, atom.value.clone(), clock)
-            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        let owned = self.nucleus.owns(&key);
+        if owned {
+            self.nucleus
+                .write(&key, atom.value.clone(), clock)
+                .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        } else {
+            // Cache local; o dono do shard persiste via AtomSync.
+            self.nucleus.absorb(&key, atom.clone());
+            tracing::debug!(
+                %key,
+                shard = Nucleus::shard_of(&key, self.nucleus.ring_size),
+                local = self.nucleus.index,
+                "isotope put em shard remoto — AtomSync"
+            );
+        }
         let env = Envelope::AtomSync {
             key: key.clone(),
             atom,
@@ -724,11 +753,51 @@ impl Organism {
             .hyphae
             .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
         self.persist()?;
-        Ok(clock)
+        Ok((clock, owned))
     }
 
-    pub fn isotope_get(&self, key: &str) -> Option<&Atom> {
-        self.nucleus.decay(key)
+    /// Hit local, ou dispara Decay e devolve None enquanto aguarda reply.
+    pub fn isotope_get(&mut self, key: &str) -> Result<Option<Atom>, OrganismError> {
+        if let Some(atom) = self.nucleus.decay(key) {
+            self.pending_decays.remove(key);
+            return Ok(Some(atom.clone()));
+        }
+        self.begin_decay(key)?;
+        Ok(None)
+    }
+
+    fn begin_decay(&mut self, key: &str) -> Result<(), OrganismError> {
+        if self.pending_decays.contains(key) {
+            return Ok(());
+        }
+        self.pending_decays.insert(key.to_string());
+        let env = Envelope::DecayQuery {
+            key: key.to_string(),
+            asker: self.gland.node_id(),
+        };
+        let _ = self
+            .hyphae
+            .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
+        tracing::info!(%key, "decay query enviado às hifas");
+        Ok(())
+    }
+
+    fn reply_decay(&mut self, key: &str, asker: NodeId) -> Result<(), OrganismError> {
+        if asker == self.gland.node_id() {
+            return Ok(());
+        }
+        let Some(atom) = self.nucleus.decay(key).cloned() else {
+            return Ok(());
+        };
+        let env = Envelope::DecayReply {
+            key: key.to_string(),
+            atom,
+        };
+        let _ = self
+            .hyphae
+            .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
+        tracing::debug!(%key, asker = %asker.short(), "decay reply enviado");
+        Ok(())
     }
 
     fn handle_envelope(&mut self, env: Envelope) -> Result<(), OrganismError> {
@@ -782,8 +851,16 @@ impl Organism {
                 }
             }
             Envelope::AtomSync { key, atom } => {
-                self.nucleus.absorb(&key, atom);
-                tracing::info!(%key, "atom sync absorvido");
+                if self.nucleus.owns(&key) {
+                    self.nucleus.absorb(&key, atom);
+                    tracing::info!(%key, "atom sync absorvido (dono do shard)");
+                } else if self.pending_decays.contains(&key) {
+                    self.nucleus.absorb(&key, atom);
+                    self.pending_decays.remove(&key);
+                    tracing::info!(%key, "atom sync absorvido (decay pendente)");
+                } else {
+                    tracing::debug!(%key, "atom sync ignorado — use Decay para ler shard remoto");
+                }
             }
             Envelope::LayerOffer { id } => {
                 let store = LayerStore::open(self.store.layers_dir())
@@ -795,6 +872,14 @@ impl Organism {
             }
             Envelope::LayerNeed { id } => {
                 self.serve_layer_if_present(&id)?;
+            }
+            Envelope::DecayQuery { key, asker } => {
+                self.reply_decay(&key, asker)?;
+            }
+            Envelope::DecayReply { key, atom } => {
+                self.nucleus.absorb(&key, atom);
+                self.pending_decays.remove(&key);
+                tracing::info!(%key, "decay reply absorvido");
             }
         }
         self.persist()?;
@@ -886,22 +971,25 @@ impl Organism {
             },
             Request::IsotopePut { key, value, clock } => match self.isotope_put(key, value, clock)
             {
-                Ok(c) => Response::Ok {
-                    message: format!("atom escrito (clock={c})"),
+                Ok((c, owned)) => Response::Ok {
+                    message: format!("atom escrito (clock={c}, owned={owned})"),
                 },
                 Err(e) => Response::Err {
                     message: e.to_string(),
                 },
             },
             Request::IsotopeGet { key } => match self.isotope_get(&key) {
-                Some(atom) => {
+                Ok(Some(atom)) => {
                     let val = String::from_utf8_lossy(&atom.value);
                     Response::Ok {
                         message: format!("atom {key}={val} (clock={})", atom.clock),
                     }
                 }
-                None => Response::Err {
-                    message: format!("atom {key} ausente no nucleus local"),
+                Ok(None) => Response::Err {
+                    message: format!("decay em curso para `{key}` — tente de novo"),
+                },
+                Err(e) => Response::Err {
+                    message: e.to_string(),
                 },
             },
             Request::Shutdown => Response::Ok {

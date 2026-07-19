@@ -5,12 +5,15 @@
 //! por hifas aos núcleos vizinhos, que respondem; a **fusão** eventual usa
 //! um CRDT last-writer-wins por timestamp lógico.
 //!
-//! Escrita local respeita o shard; `absorb` aplica AtomSync vindo das hifas
-//! (LWW sem checagem de ownership — réplicas gossip).
+//! Escrita no dono do shard; `absorb` aplica AtomSync/DecayReply vindo das
+//! hifas (LWW sem checagem de ownership — réplicas gossip).
 
-use mycelium_core::ContentId;
+use mycelium_core::{ContentId, NodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Tamanho padrão do anel de shards (nós legados migram para isto).
+pub const DEFAULT_RING_SIZE: u32 = 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IsotopeError {
@@ -45,14 +48,41 @@ impl Nucleus {
         }
     }
 
+    /// Nucleus deste nó: `index = hash(node_id) % ring_size`.
+    pub fn for_node(node_id: &NodeId, ring_size: u32) -> Self {
+        let ring = ring_size.max(1);
+        let index = u32::from_le_bytes([
+            node_id.0[0],
+            node_id.0[1],
+            node_id.0[2],
+            node_id.0[3],
+        ]) % ring;
+        Self::new(index, ring)
+    }
+
     /// Shard "natural" de uma chave no anel.
     pub fn shard_of(key: &str, ring_size: u32) -> u32 {
         let hash = ContentId::of(key.as_bytes());
         u32::from_le_bytes([hash.0[0], hash.0[1], hash.0[2], hash.0[3]]) % ring_size.max(1)
     }
 
-    fn owns(&self, key: &str) -> bool {
+    /// Esta chave cai neste nucleus?
+    pub fn owns(&self, key: &str) -> bool {
         Self::shard_of(key, self.ring_size) == self.index
+    }
+
+    /// Migra anel legado (< DEFAULT) para o anel atual, preservando átomos (LWW).
+    pub fn migrate_to_ring(self, node_id: &NodeId, ring_size: u32) -> Self {
+        let ring = ring_size.max(DEFAULT_RING_SIZE);
+        let expected = Self::for_node(node_id, ring);
+        if self.ring_size == ring && self.index == expected.index {
+            return self;
+        }
+        let mut next = expected;
+        for (key, atom) in self.atoms {
+            next.absorb(&key, atom);
+        }
+        next
     }
 
     /// Escreve um átomo. Rejeita chaves de outros núcleos.
@@ -122,6 +152,29 @@ mod tests {
             wrong.write(&key, b"v".to_vec(), 1),
             Err(IsotopeError::WrongNucleus(_))
         ));
+    }
+
+    #[test]
+    fn for_node_is_stable() {
+        let id = NodeId::derive(b"node-a");
+        let a = Nucleus::for_node(&id, 4);
+        let b = Nucleus::for_node(&id, 4);
+        assert_eq!(a.index, b.index);
+        assert_eq!(a.ring_size, 4);
+        assert!(a.index < 4);
+    }
+
+    #[test]
+    fn migrate_preserves_atoms() {
+        let id = NodeId::derive(b"migrator");
+        let mut legacy = Nucleus::new(0, 1);
+        legacy
+            .write("legacy-key", b"hello".to_vec(), 3)
+            .unwrap();
+        let next = legacy.migrate_to_ring(&id, DEFAULT_RING_SIZE);
+        assert_eq!(next.ring_size, DEFAULT_RING_SIZE);
+        assert_eq!(next.decay("legacy-key").unwrap().value, b"hello");
+        assert_eq!(next.index, Nucleus::for_node(&id, DEFAULT_RING_SIZE).index);
     }
 
     #[test]

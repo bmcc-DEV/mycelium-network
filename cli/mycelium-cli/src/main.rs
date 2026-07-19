@@ -107,10 +107,30 @@ enum Commands {
         #[arg(long)]
         clock: Option<u64>,
     },
-    /// Lê estado do Nucleus Isotope local.
+    /// Lê estado do Isotope (local ou Decay pelas hifas).
     IsotopeGet {
         #[arg(long)]
         key: String,
+    },
+    /// One-shot: sow → signal → espera ion no Horizon (fluxo do manifesto).
+    Deploy {
+        #[arg(long)]
+        plot: Option<String>,
+        #[arg(long, default_value = "init")]
+        message: String,
+        #[arg(long, default_value = "build.sh")]
+        path: String,
+        #[arg(long, default_value = "#!/bin/sh\nmkdir -p dist\necho ok > dist/index.html\n")]
+        content: String,
+        #[arg(long, default_value = "webapp")]
+        ion: String,
+        #[arg(long, default_value = "ci")]
+        name: String,
+        #[arg(long, default_value_t = 1)]
+        quorum: usize,
+        /// Segundos máximos à espera do ion.
+        #[arg(long, default_value_t = 30)]
+        timeout: u64,
     },
     Shutdown,
     #[command(hide = true)]
@@ -225,9 +245,29 @@ fn main() {
             &home,
             Request::IsotopePut { key, value, clock },
         )),
-        Commands::IsotopeGet { key } => {
-            rt.block_on(rpc(&home, Request::IsotopeGet { key }))
-        }
+        Commands::IsotopeGet { key } => rt.block_on(isotope_get_poll(&home, key)),
+        Commands::Deploy {
+            plot,
+            message,
+            path,
+            content,
+            ion,
+            name,
+            quorum,
+            timeout,
+        } => rt.block_on(deploy(
+            &home,
+            DeployOpts {
+                plot,
+                message,
+                path,
+                content,
+                ion,
+                name,
+                quorum,
+                timeout,
+            },
+        )),
         Commands::Shutdown => rt.block_on(rpc(&home, Request::Shutdown)),
         Commands::ChamberServe { port, ion, root } => {
             rt.block_on(chamber_serve(port, ion, root))
@@ -394,6 +434,109 @@ async fn rpc(home: &PathBuf, request: Request) -> Result<(), String> {
     print_response(call(&sock, request).await?)
 }
 
+/// Poll IsotopeGet até ~3s (Decay pelas hifas).
+async fn isotope_get_poll(home: &PathBuf, key: String) -> Result<(), String> {
+    let sock = home.join("mycelium.sock");
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(3);
+    let mut last_err = String::from("timeout");
+    while tokio::time::Instant::now() < deadline {
+        match call(&sock, Request::IsotopeGet { key: key.clone() }).await? {
+            Response::Ok { message } => {
+                println!("[🍄] {message}");
+                return Ok(());
+            }
+            Response::Err { message } => {
+                last_err = message;
+                if !last_err.contains("decay em curso") {
+                    return Err(last_err);
+                }
+            }
+            Response::Status(_) => return Err("resposta inesperada".into()),
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+    Err(format!("isotope-get timeout: {last_err}"))
+}
+
+/// sow (opcional) → signal → espera ion → imprime URL do Event Horizon.
+struct DeployOpts {
+    plot: Option<String>,
+    message: String,
+    path: String,
+    content: String,
+    ion: String,
+    name: String,
+    quorum: usize,
+    timeout: u64,
+}
+
+async fn deploy(home: &PathBuf, opts: DeployOpts) -> Result<(), String> {
+    let sock = home.join("mycelium.sock");
+    let plot_id = if let Some(p) = opts.plot {
+        p
+    } else {
+        println!("[🍄] Semeando plot…");
+        match call(
+            &sock,
+            Request::Sow {
+                message: opts.message,
+                path: opts.path,
+                content: opts.content,
+            },
+        )
+        .await?
+        {
+            Response::Ok { message } => message
+                .strip_prefix("plot semeado: ")
+                .unwrap_or(&message)
+                .to_string(),
+            Response::Err { message } => return Err(message),
+            Response::Status(_) => return Err("resposta inesperada no sow".into()),
+        }
+    };
+    println!("[🍄] Plot {plot_id}");
+    println!("[🍄] Signal → ion `{}`…", opts.ion);
+    match call(
+        &sock,
+        Request::Signal {
+            plot: plot_id,
+            quorum: opts.quorum,
+            ion: opts.ion.clone(),
+            name: opts.name,
+        },
+    )
+    .await?
+    {
+        Response::Ok { message } => println!("[🍄] {message}"),
+        Response::Err { message } => return Err(message),
+        Response::Status(_) => return Err("resposta inesperada no signal".into()),
+    }
+
+    let deadline =
+        tokio::time::Instant::now() + tokio::time::Duration::from_secs(opts.timeout);
+    while tokio::time::Instant::now() < deadline {
+        if let Response::Status(s) = call(&sock, Request::Status).await? {
+            if s.ions.iter().any(|n| n == &opts.ion) {
+                let base = if s.event_horizon.ends_with('/') {
+                    s.event_horizon.clone()
+                } else {
+                    format!("{}/", s.event_horizon)
+                };
+                let url = format!("{base}{}/", opts.ion);
+                println!("[🍄] Vacuum Chamber pronta");
+                println!("[🍄] Singularity Event Horizon: {url}");
+                println!("[🍄] curl -s {url}");
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+    }
+    Err(format!(
+        "deploy timeout: ion `{}` não apareceu em {}s",
+        opts.ion, opts.timeout
+    ))
+}
+
 fn print_response(resp: Response) -> Result<(), String> {
     match resp {
         Response::Ok { message } => {
@@ -410,6 +553,10 @@ fn print_response(resp: Response) -> Result<(), String> {
             println!("    plots      : {}", s.plots);
             println!("    signals    : {}", s.signals);
             println!("    ions       : {:?}", s.ions);
+            println!(
+                "    isotope    : shard={}/{} atoms={}",
+                s.isotope_shard, s.isotope_ring, s.isotope_atoms
+            );
             if !s.event_horizon.is_empty() {
                 println!("    horizon    : {}", s.event_horizon);
             }

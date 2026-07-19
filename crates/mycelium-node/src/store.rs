@@ -173,11 +173,11 @@ impl NodeStore {
             .unwrap_or_default()
     }
 
-    pub fn load_nucleus(&self) -> Nucleus {
+    /// Carrega o Nucleus; se ausente, cria vazio (o awaken aplica `for_node` / migração).
+    pub fn load_nucleus(&self) -> Option<Nucleus> {
         std::fs::read(self.nucleus_path())
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_else(|| Nucleus::new(0, 1))
     }
 
     pub fn save_nucleus(&self, nucleus: &Nucleus) -> Result<(), StoreError> {

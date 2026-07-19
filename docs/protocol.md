@@ -30,9 +30,18 @@ Mensagens novas saem como:
 | `Resonance` | Quórum / ressonância |
 | `VectorOffer` | Oferta Inertia (Build/Test) |
 | `MomentumReport` | Resultado Inertia |
-| `AtomSync` | Estado Isotope LWW |
+| `AtomSync` | Estado Isotope LWW (dono do shard persiste) |
+| `DecayQuery` / `DecayReply` | Consulta Isotope pelas hifas (miss local) |
 | `LayerOffer` / `LayerNeed` | Layers Vacuum |
+
+## Isotope
+
+- Anel padrão: **4** shards (`index = hash(NodeId) % 4`)
+- Escrita: dono faz `write`; outros fazem cache + `AtomSync` para o dono
+- Leitura remota: miss → `DecayQuery` → peer com átomo → `DecayReply` → absorb LWW
 
 ## Deploy
 
-Só o **origin** do `Signal` executa `Thrust::Deploy`. Remotos aceitam `VectorOffer` de Build/Test.
+Só o **origin** do `Signal` executa `Thrust::Deploy`. Remotos aceitam `VectorOffer` de Build/Test.  
+CLI: `mycelium deploy` (sow → signal → URL do Event Horizon).
+

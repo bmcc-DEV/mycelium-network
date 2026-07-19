@@ -82,4 +82,6 @@ Não há cobrança em dinheiro fiat: quem alimenta a rede é alimentado pela red
 
 ## Estado da implementação
 
-Protótipo funcional: hifas com mDNS (opt-out `--no-mdns`) + seed book + DHT + circuit relay v2 (`--relay` / client `/p2p-circuit`); Vacuum com layers em disco/DHT (`layer/`) + gossip `LayerNeed`/`LayerOffer`; Inertia local e remoto (`VectorOffer` → `MomentumReport`); Deploy só no origin do Signal; Isotope com `nucleus.json` + `AtomSync`; Singularity HTTP + `/console` + rate-limit; Envelope `v:1` (`docs/protocol.md`); control socket com `MYCELIUM_CONTROL_TOKEN` (obrigatório em `--relay`); seed com `--announce-ip` + `scripts/install-seed.sh`. Catálogo: `seeds/mainnet.txt`. CI: unitários + demos de integração.
+Protótipo funcional: hifas com mDNS (opt-out `--no-mdns`) + seed book + DHT + circuit relay v2 (`--relay` / client `/p2p-circuit`); Vacuum com layers em disco/DHT (`layer/`) + gossip `LayerNeed`/`LayerOffer`; Inertia local e remoto (`VectorOffer` → `MomentumReport`); Deploy só no origin do Signal (`mycelium deploy` one-shot); Isotope anel 4 + `AtomSync` + **Decay** (`DecayQuery`/`DecayReply`); Singularity HTTP + `/console` + rate-limit; Envelope `v:1` (`docs/protocol.md`); control socket com `MYCELIUM_CONTROL_TOKEN` (obrigatório em `--relay`); seed com `--announce-ip` + `scripts/install-seed.sh`. Catálogo: `seeds/mainnet.txt`. CI: unitários + demos de integração.
+
+**Ainda stub / superficial:** Entropy Shades no daemon, Void placement compartilhado, Sporocarp CDN, Growth Zones, Prometheus `/metrics`.

@@ -38,6 +38,10 @@ pub enum Envelope {
     LayerOffer { id: ContentId },
     /// Pedido: preciso desta layer (vizinhos com blob respondem via DHT/offer).
     LayerNeed { id: ContentId },
+    /// Consulta Isotope: preciso deste átomo (Decay pelas hifas).
+    DecayQuery { key: String, asker: NodeId },
+    /// Resposta Isotope a um Decay.
+    DecayReply { key: String, atom: Atom },
 }
 
 /// Frame versionado no fio.
