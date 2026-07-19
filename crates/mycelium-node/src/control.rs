@@ -31,6 +31,17 @@ pub enum Request {
     Bootstrap {
         addr: String,
     },
+    /// Escreve um átomo no Isotope e propaga via hifas.
+    IsotopePut {
+        key: String,
+        value: String,
+        #[serde(default)]
+        clock: Option<u64>,
+    },
+    /// Lê um átomo do Nucleus local.
+    IsotopeGet {
+        key: String,
+    },
     Shutdown,
 }
 
@@ -68,6 +79,9 @@ pub struct StatusReport {
     /// Endpoints vivos das Chambers (Vacuum).
     #[serde(default)]
     pub ion_endpoints: Vec<String>,
+    /// Átomos no Nucleus Isotope local.
+    #[serde(default)]
+    pub isotope_atoms: usize,
 }
 
 /// Mensagem interna: pedido + canal de resposta.

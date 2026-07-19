@@ -43,9 +43,15 @@ mycelium daemon --public-bootstrap --bootstrap-url https://seu.host/seeds.txt
 mycelium daemon --seed-file ./seeds/mainnet.example.txt --listen /ip4/0.0.0.0/tcp/4001
 ```
 
-Vacuum usa **bubblewrap** por padrão quando `bwrap` está no PATH (filesystem + PID isolados).
+Vacuum usa **bubblewrap** por padrão quando `bwrap` está no PATH; layers content-addressed em `{home}/layers/` e limites soft de RAM (`RLIMIT_AS`).
 
-Demos: `./scripts/e2e-demo.sh` · `./scripts/horizon-demo.sh`
+Rede só com seed book (sem mDNS / sem `--bootstrap` manual):
+
+```bash
+./scripts/seedbook-demo.sh
+```
+
+Demos: `./scripts/e2e-demo.sh` · `./scripts/horizon-demo.sh` · `./scripts/seedbook-demo.sh`
 
 ## Fluxo ponta a ponta
 
@@ -69,6 +75,7 @@ Giggs sow Plot → Spore Bank (disco + DHT) → gossip hifas
 | `recall` | Lê Plot local; se ausente, consulta DHT |
 | `bootstrap` | Dial explícito a um peer remoto |
 | `seeds list/add/fetch` | Seed book (bootstrap público) |
+| `isotope-put` / `isotope-get` | Estado Isotope (LWW via hifas) |
 | `shutdown` | Hiberna o daemon (estado fica em disco) |
 
 ## Crates
@@ -91,9 +98,22 @@ gland.seed          identidade (PeerId estável)
 ledger.json         nutrientes
 resources.json      contribuição
 organism.json       field, ions, métricas de hifas, bootstrap
+nucleus.json        Isotope (átomos LWW)
+layers/             Vacuum layers content-addressed
+builds/             workbench do Inertia
 sporebank/plots/    Plots content-addressed
 listen_addrs.json   multiaddrs para bootstrap de pares
+seeds.txt           seed book mesclado
 mycelium.sock       plano de controle do daemon
+```
+
+## Publicar um seed
+
+```bash
+mycelium --home /var/lib/mycelium-seed daemon \
+  --listen /ip4/0.0.0.0/tcp/4001 --no-mdns --contribute 2cpu,4gb,100gb
+./scripts/export-seed.sh /var/lib/mycelium-seed >> seeds/mainnet.txt
+# commit + push; clientes usam --public-bootstrap
 ```
 
 ## Desenvolvimento

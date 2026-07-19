@@ -27,6 +27,8 @@ pub struct DaemonOptions {
     pub seed_file: Option<PathBuf>,
     pub public_bootstrap: bool,
     pub bootstrap_url: Option<String>,
+    /// Se true, desliga mDNS (só seeds/bootstrap).
+    pub no_mdns: bool,
 }
 
 /// Desperta o daemon: socket de controle + loop do organismo.
@@ -40,6 +42,7 @@ pub async fn run_daemon(home: PathBuf, opts: DaemonOptions) -> Result<(), Organi
         seed_file: opts.seed_file,
         public_bootstrap: opts.public_bootstrap,
         bootstrap_url: opts.bootstrap_url,
+        enable_mdns: !opts.no_mdns,
     })?;
     let sock = organism.home().join("mycelium.sock");
     let (tx, rx) = mpsc::channel(32);

@@ -1,0 +1,14 @@
+# Mycelium Network — catálogo público de seeds (mainnet)
+#
+# Uma multiaddr libp2p por linha. Comentários começam com #.
+# Operadores: rode um seed e publique o dialable addr aqui:
+#   mycelium daemon --listen /ip4/0.0.0.0/tcp/4001 --no-mdns
+#   ./scripts/export-seed.sh /path/to/seed-home >> seeds/mainnet.txt
+#
+# Clientes:
+#   mycelium daemon --public-bootstrap
+#   mycelium daemon --seed-file ./seeds/mainnet.txt --no-mdns
+#
+# Placeholder até o primeiro seed público estável existir:
+# /dnsaddr/bootstrap.mycelium.network
+# /ip4/SEED_PUBLIC_IP/tcp/4001/p2p/12D3KooW...

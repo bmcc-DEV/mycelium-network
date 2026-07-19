@@ -1,5 +1,6 @@
 //! Persistência em disco do organismo.
 
+use isotope::Nucleus;
 use mycelium_core::Resources;
 use mycelium_hyphae::HyphaMetrics;
 use mycelium_nutrients::Ledger;
@@ -69,6 +70,18 @@ impl NodeStore {
 
     pub fn chambers_dir(&self) -> PathBuf {
         self.root.join("chambers")
+    }
+
+    pub fn layers_dir(&self) -> PathBuf {
+        self.root.join("layers")
+    }
+
+    pub fn builds_dir(&self) -> PathBuf {
+        self.root.join("builds")
+    }
+
+    fn nucleus_path(&self) -> PathBuf {
+        self.root.join("nucleus.json")
     }
 
     fn seed_path(&self) -> PathBuf {
@@ -158,6 +171,21 @@ impl NodeStore {
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default()
+    }
+
+    pub fn load_nucleus(&self) -> Nucleus {
+        std::fs::read(self.nucleus_path())
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_else(|| Nucleus::new(0, 1))
+    }
+
+    pub fn save_nucleus(&self, nucleus: &Nucleus) -> Result<(), StoreError> {
+        std::fs::write(
+            self.nucleus_path(),
+            serde_json::to_vec_pretty(nucleus)?,
+        )?;
+        Ok(())
     }
 
     pub fn write_pid(&self) -> Result<(), StoreError> {

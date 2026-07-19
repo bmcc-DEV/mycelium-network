@@ -52,6 +52,9 @@ enum Commands {
         /// Porta do Event Horizon HTTP (Singularity).
         #[arg(long, default_value_t = 7474)]
         horizon_port: u16,
+        /// Desliga mDNS — discovery só via seed book / --bootstrap.
+        #[arg(long = "no-mdns")]
+        no_mdns: bool,
     },
     Status,
     Sow {
@@ -88,6 +91,20 @@ enum Commands {
     Seeds {
         #[command(subcommand)]
         action: SeedsCmd,
+    },
+    /// Escreve estado no Isotope (propaga por hifas).
+    IsotopePut {
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        value: String,
+        #[arg(long)]
+        clock: Option<u64>,
+    },
+    /// Lê estado do Nucleus Isotope local.
+    IsotopeGet {
+        #[arg(long)]
+        key: String,
     },
     Shutdown,
     #[command(hide = true)]
@@ -144,6 +161,7 @@ fn main() {
             bootstrap_url,
             listen,
             horizon_port,
+            no_mdns,
         } => rt.block_on(daemon(
             &home,
             &contribute,
@@ -155,6 +173,7 @@ fn main() {
                 seed_file,
                 public_bootstrap,
                 bootstrap_url,
+                no_mdns,
             },
         )),
         Commands::Status => rt.block_on(status(&home)),
@@ -192,6 +211,13 @@ fn main() {
             rt.block_on(rpc(&home, Request::Bootstrap { addr }))
         }
         Commands::Seeds { action } => seeds_cmd(&home, action),
+        Commands::IsotopePut { key, value, clock } => rt.block_on(rpc(
+            &home,
+            Request::IsotopePut { key, value, clock },
+        )),
+        Commands::IsotopeGet { key } => {
+            rt.block_on(rpc(&home, Request::IsotopeGet { key }))
+        }
         Commands::Shutdown => rt.block_on(rpc(&home, Request::Shutdown)),
         Commands::ChamberServe { port, ion, root } => {
             rt.block_on(chamber_serve(port, ion, root))
@@ -293,6 +319,9 @@ async fn daemon(
                 .unwrap_or(DEFAULT_BOOTSTRAP_URL)
         );
     }
+    if opts.no_mdns {
+        println!("[🍄] mDNS desligado — só seed book / bootstrap");
+    }
     if !opts.listen.is_empty() {
         println!("[🍄] Listen: {:?}", opts.listen);
     }
@@ -393,9 +422,12 @@ fn print_response(resp: Response) -> Result<(), String> {
 }
 
 async fn chamber_serve(port: u16, ion: String, root: PathBuf) -> Result<(), String> {
-    let message = std::fs::read_to_string(root.join("message.txt")).unwrap_or_else(|_| ion.clone());
+    let message = std::fs::read_to_string(root.join("message.txt"))
+        .or_else(|_| std::fs::read_to_string(root.join("rootfs/MESSAGE")))
+        .unwrap_or_else(|_| ion.clone());
     let ion_name = ion.clone();
     let msg = message.clone();
+    let built_html = std::fs::read_to_string(root.join("rootfs/index.html")).ok();
 
     let app = Router::new()
         .route(
@@ -423,19 +455,24 @@ async fn chamber_serve(port: u16, ion: String, root: PathBuf) -> Result<(), Stri
             get({
                 let ion = ion_name;
                 let msg = message;
+                let built = built_html;
                 move || {
                     let ion = ion.clone();
                     let msg = msg.clone();
+                    let built = built.clone();
                     async move {
-                        (
-                            [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                        let body = built.unwrap_or_else(|| {
                             format!(
                                 "<!doctype html><html><body style=\"font-family:system-ui;background:#0b1a14;color:#c8e6c9;padding:2rem\">\
                                 <h1>🍄 {ion}</h1>\
                                 <p>Servido por uma <b>Vacuum Chamber</b> (processo filho).</p>\
                                 <pre>{msg}</pre>\
                                 </body></html>"
-                            ),
+                            )
+                        });
+                        (
+                            [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                            body,
                         )
                     }
                 }

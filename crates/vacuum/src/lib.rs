@@ -2,10 +2,13 @@
 //!
 //! Um **Void** é a "imagem": manifesto content-addressed de camadas.
 //! Uma **Chamber** é a instância; [`ChamberProcess`] a materializa como
-//! processo filho com isolamento (bubblewrap por padrão quando disponível).
+//! processo filho com isolamento (bubblewrap por padrão quando disponível)
+//! e limites soft de memória/CPU.
 
+mod layers;
 mod process;
 
+pub use layers::{LayerArchive, LayerStore};
 pub use process::{ChamberProcess, FruitOptions, Isolation};
 
 use mycelium_core::{ContentId, FruitingBody, Nutrient, Resources, Vitality};
@@ -34,7 +37,7 @@ pub struct Void {
     pub entrypoint: String,
 }
 
-/// Depósito local de camadas conhecidas (sugadas de vizinhos).
+/// Depósito local de camadas conhecidas (RAM — cache / testes).
 #[derive(Debug, Default)]
 pub struct LayerPool {
     blobs: HashMap<ContentId, Vec<u8>>,
@@ -75,6 +78,21 @@ pub struct Chamber {
 impl Chamber {
     pub fn suck(void: Void, pool: &LayerPool, resources: Resources) -> Result<Self, VacuumError> {
         if let Some(missing) = pool.missing(&void).first() {
+            return Err(VacuumError::LayerMissing(**missing));
+        }
+        Ok(Self {
+            void,
+            resources,
+            vitality: Vitality::Fruiting,
+        })
+    }
+
+    pub fn suck_store(
+        void: Void,
+        store: &LayerStore,
+        resources: Resources,
+    ) -> Result<Self, VacuumError> {
+        if let Some(missing) = store.missing(&void.layers).first() {
             return Err(VacuumError::LayerMissing(**missing));
         }
         Ok(Self {

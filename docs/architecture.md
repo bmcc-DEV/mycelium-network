@@ -82,4 +82,4 @@ Não há cobrança em dinheiro fiat: quem alimenta a rede é alimentado pela red
 
 ## Estado da implementação
 
-Protótipo funcional: hifas com mDNS + seed book público + DHT; Vacuum com lifecycle e isolamento; Singularity HTTP; Lattice ponta a ponta (sow → signal → chamber → horizon). Componentes Lattice ainda são stubs coesos; `entropy` tem Shamir real.
+Protótipo funcional: hifas com mDNS (opt-out `--no-mdns`) + seed book + DHT; Vacuum com layers em disco/DHT (`layer/`) + gossip `LayerNeed`/`LayerOffer`; Inertia local e remoto (`VectorOffer` → `MomentumReport`); Isotope com `nucleus.json` + `AtomSync`; Singularity HTTP; fluxo sow → build → chamber → horizon. Catálogo público: `seeds/mainnet.txt`.

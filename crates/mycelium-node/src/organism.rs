@@ -4,21 +4,26 @@ use crate::control::{ControlMsg, Request, Response, StatusReport};
 use crate::protocol::Envelope;
 use crate::store::{IonRecord, NodeStore, OrganismState, StoreError};
 use giggs::{Leaf, Plot};
-use inertia::{Flywheel, Thrust, Vector};
-use mycelium_core::{ContentId, Nutrient, Resources};
+use inertia::{Flywheel, Momentum, Thrust, Vector};
+use isotope::{Atom, Nucleus};
+use mycelium_core::{ContentId, NodeId, Nutrient, Resources};
 use mycelium_hyphae::{HyphaEvent, HyphaeConfig, HyphaeNode, SeedBook};
 use mycelium_nutrients::Ledger;
 use mycelium_pheromones::{Gland, Trail};
-use mycelium_sporebank::{dht_key, SporeBank};
+use mycelium_sporebank::{
+    content_id_from_layer_dht_key, dht_key, layer_dht_key, SporeBank,
+};
 use plasma::{Cloud, Ion};
 use singularity::{serve_horizon, EventHorizon, HorizonHandle, HorizonTable, Orbit};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thefield::{Proposal, SignalState};
 use tokio::sync::mpsc;
-use vacuum::{Chamber, ChamberProcess, FruitOptions, Isolation, LayerPool, Void};
+use vacuum::{
+    Chamber, ChamberProcess, FruitOptions, Isolation, LayerArchive, LayerStore, Void,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum OrganismError {
@@ -46,6 +51,7 @@ pub struct OrganismConfig {
     pub seed_file: Option<PathBuf>,
     pub public_bootstrap: bool,
     pub bootstrap_url: Option<String>,
+    pub enable_mdns: bool,
 }
 
 pub struct Organism {
@@ -64,6 +70,11 @@ pub struct Organism {
     processed: HashSet<ContentId>,
     horizon_handle: Option<HorizonHandle>,
     seed_book: SeedBook,
+    nucleus: Nucleus,
+    /// Artefato do último Build bem-sucedido (por plot).
+    build_artifacts: HashMap<ContentId, LayerArchive>,
+    /// Vectors remotos já aceitos (evita re-execução).
+    remote_done: HashSet<String>,
 }
 
 impl Organism {
@@ -122,6 +133,7 @@ impl Organism {
             listen,
             bootstrap: bootstrap_addrs,
             kad_bootstrap: !seed_book.is_empty(),
+            enable_mdns: config.enable_mdns,
         })?;
         hyphae.restore_metrics(state.hypha_metrics.clone());
 
@@ -136,6 +148,7 @@ impl Organism {
         let mycelium_bin = std::env::current_exe().map_err(|e| OrganismError::Msg(e.to_string()))?;
         let horizon = EventHorizon::shared();
         let records = state.ions.clone();
+        let nucleus = store.load_nucleus();
         let mut org = Self {
             store,
             gland,
@@ -152,6 +165,9 @@ impl Organism {
             processed,
             horizon_handle: None,
             seed_book,
+            nucleus,
+            build_artifacts: HashMap::new(),
+            remote_done: HashSet::new(),
         };
 
         for rec in records {
@@ -175,6 +191,7 @@ impl Organism {
         self.state.processed_signals = self.processed.iter().map(|id| id.to_string()).collect();
         self.store.save_state(&self.state)?;
         self.store.save_ledger(&self.ledger)?;
+        self.store.save_nucleus(&self.nucleus)?;
         let addrs: Vec<String> = self
             .hyphae
             .dialable_addrs()
@@ -228,6 +245,7 @@ impl Organism {
             home: self.store.root.display().to_string(),
             event_horizon: horizon_url,
             ion_endpoints: endpoints,
+            isotope_atoms: self.nucleus.len(),
         }
     }
 
@@ -333,6 +351,7 @@ impl Organism {
                     ion = %target_ion,
                     "pipeline fired — spinning inertia"
                 );
+                let work = self.prepare_workbench(plot)?;
                 self.flywheel.inject(Vector {
                     plot: *plot,
                     thrust: Thrust::Build,
@@ -351,22 +370,165 @@ impl Organism {
                     emitter: signal.origin,
                 });
 
-                while let Ok((vector, momentum)) = self.flywheel.spin(self.gland.node_id()) {
+                while let Ok((vector, momentum)) =
+                    self.flywheel.spin(self.gland.node_id(), &work)
+                {
                     self.ledger
                         .feed(Nutrient::Atp, momentum.atp_earned, &momentum.log);
                     tracing::info!("{}", momentum.log);
+                    if !momentum.success {
+                        tracing::warn!(thrust = ?vector.thrust, "inertia falhou — abortando pipeline");
+                        break;
+                    }
+                    if matches!(vector.thrust, Thrust::Build) {
+                        let archive = match inertia::collect_artifact(&work) {
+                            Some(files) => {
+                                let mut a = LayerArchive::new();
+                                for (path, bytes) in files {
+                                    a.insert(path, bytes);
+                                }
+                                a
+                            }
+                            None => {
+                                let fallback = self
+                                    .bank
+                                    .spore_print(plot)
+                                    .unwrap_or_else(|_| b"{}".to_vec());
+                                LayerArchive::single("app.payload", fallback)
+                            }
+                        };
+                        self.build_artifacts.insert(*plot, archive);
+                    }
                     if let Thrust::Deploy { ref target_ion } = vector.thrust {
                         self.birth_ion(target_ion, &vector.plot.to_string(), name)?;
                     }
-                    let env = Envelope::VectorOffer { vector };
-                    let _ = self.hyphae.broadcast_lattice(
-                        env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?,
-                    );
+                    self.broadcast_momentum(&vector, &momentum, self.gland.node_id())?;
+                    // Oferece Build/Test à rede (Deploy fica no emissor).
+                    if !matches!(vector.thrust, Thrust::Deploy { .. }) {
+                        let env = Envelope::VectorOffer {
+                            vector: vector.clone(),
+                        };
+                        let _ = self.hyphae.broadcast_lattice(
+                            env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?,
+                        );
+                    }
                 }
                 self.processed.insert(signal.id);
             } else {
                 self.processed.insert(signal.id);
             }
+        }
+        Ok(())
+    }
+
+    fn prepare_workbench(&self, plot: &ContentId) -> Result<PathBuf, OrganismError> {
+        let plot_data = self
+            .bank
+            .recall(plot)
+            .ok_or_else(|| OrganismError::Msg(format!("plot {plot} ausente para build")))?;
+        let work = self.store.builds_dir().join(plot.short());
+        let leaves: Vec<(String, Vec<u8>)> = plot_data
+            .leaves
+            .iter()
+            .map(|l| (l.path.clone(), l.content.clone()))
+            .collect();
+        inertia::materialize_leaves(&work, &leaves)
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        std::fs::write(work.join("MESSAGE"), plot_data.message.as_bytes())
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        Ok(work)
+    }
+
+    fn vector_fingerprint(vector: &Vector) -> String {
+        format!(
+            "{}:{:?}:{}",
+            vector.plot,
+            vector.thrust,
+            vector.emitter.short()
+        )
+    }
+
+    fn broadcast_momentum(
+        &mut self,
+        vector: &Vector,
+        momentum: &Momentum,
+        executor: NodeId,
+    ) -> Result<(), OrganismError> {
+        let env = Envelope::MomentumReport {
+            vector: vector.clone(),
+            momentum: momentum.clone(),
+            executor,
+        };
+        let _ = self
+            .hyphae
+            .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
+        Ok(())
+    }
+
+    /// Anuncia layer no DHT + gossip.
+    fn announce_layer(&mut self, id: ContentId, bytes: &[u8]) -> Result<(), OrganismError> {
+        let key = layer_dht_key(&id);
+        let _ = self.hyphae.dht_store_local(key.clone(), bytes.to_vec());
+        let _ = self.hyphae.dht_put(key, bytes.to_vec());
+        let env = Envelope::LayerOffer { id };
+        let _ = self
+            .hyphae
+            .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
+        Ok(())
+    }
+
+    /// Se a layer falta, pede à rede (gossip + DHT).
+    fn request_layer(&mut self, id: &ContentId) {
+        tracing::info!(layer = %id.short(), "pedindo layer aos vizinhos");
+        let env = Envelope::LayerNeed { id: *id };
+        if let Ok(bytes) = env.encode() {
+            let _ = self.hyphae.broadcast_lattice(bytes);
+        }
+        self.hyphae.dht_get(layer_dht_key(id));
+    }
+
+    fn serve_layer_if_present(&mut self, id: &ContentId) -> Result<(), OrganismError> {
+        let store = LayerStore::open(self.store.layers_dir())
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        if let Some(bytes) = store.get(id) {
+            self.announce_layer(*id, &bytes)?;
+            tracing::info!(layer = %id.short(), "layer servida ao pedido");
+        }
+        Ok(())
+    }
+
+    /// Executa Vector remoto (Build/Test) se houver CPU ociosa e Plot local.
+    fn accept_remote_vector(&mut self, vector: Vector) -> Result<(), OrganismError> {
+        if self.resources.cpu_cores == 0 || self.flywheel.pending() > 2 {
+            return Ok(());
+        }
+        if matches!(vector.thrust, Thrust::Deploy { .. }) {
+            return Ok(());
+        }
+        if vector.emitter == self.gland.node_id() {
+            return Ok(());
+        }
+        let fp = Self::vector_fingerprint(&vector);
+        if self.remote_done.contains(&fp) {
+            return Ok(());
+        }
+        if self.bank.recall(&vector.plot).is_none() {
+            self.hyphae.dht_get(dht_key(&vector.plot));
+            tracing::debug!(plot = %vector.plot.short(), "vector remoto: plot ausente, DHT get");
+            return Ok(());
+        }
+        let work = self.prepare_workbench(&vector.plot)?;
+        self.flywheel.inject(vector);
+        if let Ok((v, momentum)) = self.flywheel.spin(self.gland.node_id(), &work) {
+            self.remote_done.insert(Self::vector_fingerprint(&v));
+            self.ledger
+                .feed(Nutrient::Atp, momentum.atp_earned, &momentum.log);
+            tracing::info!(
+                plot = %v.plot.short(),
+                "vector remoto executado: {}",
+                momentum.log
+            );
+            self.broadcast_momentum(&v, &momentum, self.gland.node_id())?;
         }
         Ok(())
     }
@@ -402,20 +564,46 @@ impl Organism {
             .recall(&plot_id)
             .map(|p| p.message.clone())
             .unwrap_or_else(|| format!("ion:{name}"));
-        let payload = self
-            .bank
-            .spore_print(&plot_id)
-            .unwrap_or_else(|_| message.as_bytes().to_vec());
 
-        let mut pool = LayerPool::new();
-        let base = pool.deposit(format!("base:{pipeline}").into_bytes());
-        let app = pool.deposit(payload.clone());
+        let layer_store = LayerStore::open(self.store.layers_dir())
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        let mut base = LayerArchive::single("MESSAGE", message.as_bytes());
+        base.insert("pipeline.txt", pipeline.as_bytes().to_vec());
+        let base_bytes = base
+            .encode()
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        let base_id = layer_store
+            .put(&base_bytes)
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        self.announce_layer(base_id, &base_bytes)?;
+
+        let app = self.build_artifacts.remove(&plot_id).unwrap_or_else(|| {
+            let payload = self
+                .bank
+                .spore_print(&plot_id)
+                .unwrap_or_else(|_| message.as_bytes().to_vec());
+            LayerArchive::single("app.payload", payload)
+        });
+        let app_bytes = app
+            .encode()
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        let app_id = layer_store
+            .put(&app_bytes)
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        self.announce_layer(app_id, &app_bytes)?;
+
         let void = Void {
             name: name.to_string(),
-            layers: vec![base, app],
+            layers: vec![base_id, app_id],
             entrypoint: "chamber-serve".into(),
         };
-        let chamber = Chamber::suck(void, &pool, self.resources)?;
+        // Se alguma layer sumir do disco, pede à rede antes de falhar.
+        for lid in &void.layers {
+            if !layer_store.has(lid) {
+                self.request_layer(lid);
+            }
+        }
+        let chamber = Chamber::suck_store(void.clone(), &layer_store, self.resources)?;
         let ion = Ion::birth(name, self.gland.node_id(), chamber);
         match self.cloud.inject(ion) {
             Ok(()) | Err(plasma::PlasmaError::AlreadyOrbiting(_)) => {}
@@ -427,15 +615,21 @@ impl Organism {
         } else {
             None
         };
-        let proc = ChamberProcess::fruit_with(
+        let cpu = if self.resources.cpu_cores > 0 {
+            Some(self.resources.cpu_cores)
+        } else {
+            None
+        };
+        let proc = ChamberProcess::fruit_void(
             &self.mycelium_bin,
             &self.store.chambers_dir(),
-            name,
+            &void,
+            &layer_store,
             &message,
-            &payload,
             FruitOptions {
                 isolation: Isolation::Auto,
                 memory_mib: mem,
+                cpu_cores: cpu,
             },
         )?;
 
@@ -457,6 +651,7 @@ impl Organism {
         tracing::info!(
             ion = name,
             upstream = %proc.upstream,
+            layers = ?void.layers.iter().map(|l| l.short()).collect::<Vec<_>>(),
             horizon = %format!("http://127.0.0.1:{}/{name}/", self.state.horizon_port),
             "chamber viva — ion no event horizon"
         );
@@ -477,6 +672,40 @@ impl Organism {
             self.persist()?;
         }
         Ok(())
+    }
+
+    pub fn isotope_put(
+        &mut self,
+        key: String,
+        value: String,
+        clock: Option<u64>,
+    ) -> Result<u64, OrganismError> {
+        let clock = clock.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(1)
+        });
+        let atom = Atom {
+            value: value.into_bytes(),
+            clock,
+        };
+        self.nucleus
+            .write(&key, atom.value.clone(), clock)
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        let env = Envelope::AtomSync {
+            key: key.clone(),
+            atom,
+        };
+        let _ = self
+            .hyphae
+            .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
+        self.persist()?;
+        Ok(clock)
+    }
+
+    pub fn isotope_get(&self, key: &str) -> Option<&Atom> {
+        self.nucleus.decay(key)
     }
 
     fn handle_envelope(&mut self, env: Envelope) -> Result<(), OrganismError> {
@@ -505,7 +734,44 @@ impl Organism {
                 Err(e) => return Err(e.into()),
             },
             Envelope::VectorOffer { vector } => {
-                tracing::debug!(plot = %vector.plot.short(), "vector visto na rede");
+                tracing::debug!(plot = %vector.plot.short(), "vector oferecido na rede");
+                self.accept_remote_vector(vector)?;
+            }
+            Envelope::MomentumReport {
+                vector,
+                momentum,
+                executor,
+            } => {
+                tracing::info!(
+                    plot = %vector.plot.short(),
+                    executor = %executor.short(),
+                    success = momentum.success,
+                    "momentum report: {}",
+                    momentum.log
+                );
+                // Crédito simbólico no emissor quando o trabalho veio de outro nó.
+                if vector.emitter == self.gland.node_id() && executor != self.gland.node_id() {
+                    self.ledger.feed(
+                        Nutrient::Spores,
+                        1,
+                        format!("remote-inertia:{}", executor.short()),
+                    );
+                }
+            }
+            Envelope::AtomSync { key, atom } => {
+                self.nucleus.absorb(&key, atom);
+                tracing::info!(%key, "atom sync absorvido");
+            }
+            Envelope::LayerOffer { id } => {
+                let store = LayerStore::open(self.store.layers_dir())
+                    .map_err(|e| OrganismError::Msg(e.to_string()))?;
+                if !store.has(&id) {
+                    self.hyphae.dht_get(layer_dht_key(&id));
+                    tracing::debug!(layer = %id.short(), "layer offer → DHT get");
+                }
+            }
+            Envelope::LayerNeed { id } => {
+                self.serve_layer_if_present(&id)?;
             }
         }
         self.persist()?;
@@ -593,6 +859,26 @@ impl Organism {
                 },
                 Err(e) => Response::Err {
                     message: format!("multiaddr inválido: {e}"),
+                },
+            },
+            Request::IsotopePut { key, value, clock } => match self.isotope_put(key, value, clock)
+            {
+                Ok(c) => Response::Ok {
+                    message: format!("atom escrito (clock={c})"),
+                },
+                Err(e) => Response::Err {
+                    message: e.to_string(),
+                },
+            },
+            Request::IsotopeGet { key } => match self.isotope_get(&key) {
+                Some(atom) => {
+                    let val = String::from_utf8_lossy(&atom.value);
+                    Response::Ok {
+                        message: format!("atom {key}={val} (clock={})", atom.clock),
+                    }
+                }
+                None => Response::Err {
+                    message: format!("atom {key} ausente no nucleus local"),
                 },
             },
             Request::Shutdown => Response::Ok {
@@ -751,6 +1037,20 @@ impl Organism {
                                 match self.bank.absorb(&value) {
                                     Ok(_) => tracing::info!(plot = %id.short(), "esporo recuperado do DHT"),
                                     Err(e) => tracing::warn!("absorb DHT: {e}"),
+                                }
+                                let _ = self.persist();
+                            } else if let Some(id) = content_id_from_layer_dht_key(&key) {
+                                match LayerStore::open(self.store.layers_dir()) {
+                                    Ok(store) => match store.put(&value) {
+                                        Ok(stored) => {
+                                            tracing::info!(
+                                                layer = %stored.short(),
+                                                "layer recuperada do DHT"
+                                            );
+                                        }
+                                        Err(e) => tracing::warn!("layer DHT put: {e}"),
+                                    },
+                                    Err(e) => tracing::warn!("layer store: {e}"),
                                 }
                                 let _ = self.persist();
                             }

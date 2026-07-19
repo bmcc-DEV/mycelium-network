@@ -18,8 +18,9 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 /// URL padrão do catálogo público (sobrescrevível).
+/// Aponta ao `seeds/mainnet.txt` deste monorepo quando publicado no GitHub.
 pub const DEFAULT_BOOTSTRAP_URL: &str =
-    "https://raw.githubusercontent.com/mycelium-network/seeds/main/mainnet.txt";
+    "https://raw.githubusercontent.com/bmcc-DEV/mycelium-network/main/seeds/mainnet.txt";
 
 /// Livro de sementes: peers conhecidos para bootstrap remoto.
 #[derive(Debug, Clone, Default)]

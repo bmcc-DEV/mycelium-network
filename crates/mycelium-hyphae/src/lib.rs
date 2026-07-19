@@ -17,7 +17,10 @@ use libp2p::{
     gossipsub, identify, kad,
     kad::{store::RecordStore, Quorum, Record},
     mdns, noise,
-    swarm::{NetworkBehaviour, SwarmEvent},
+    swarm::{
+        behaviour::toggle::Toggle,
+        NetworkBehaviour, SwarmEvent,
+    },
     tcp, yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use serde::{Deserialize, Serialize};
@@ -43,7 +46,7 @@ pub enum HyphaeError {
 }
 
 /// Configuração de germinação.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct HyphaeConfig {
     /// Semente ed25519 (32 bytes). Mesma semente ⇒ mesmo PeerId.
     pub seed: Option<[u8; 32]>,
@@ -53,6 +56,20 @@ pub struct HyphaeConfig {
     pub bootstrap: Vec<Multiaddr>,
     /// Dispara `kademlia.bootstrap()` após dialar seeds.
     pub kad_bootstrap: bool,
+    /// Descoberta local via mDNS. Desligue para forçar seed book / bootstrap.
+    pub enable_mdns: bool,
+}
+
+impl Default for HyphaeConfig {
+    fn default() -> Self {
+        Self {
+            seed: None,
+            listen: Vec::new(),
+            bootstrap: Vec::new(),
+            kad_bootstrap: false,
+            enable_mdns: true,
+        }
+    }
 }
 
 /// Eventos que a hifa reporta ao organismo (CLI/daemon).
@@ -124,7 +141,7 @@ pub struct HyphaMetrics {
 struct SubstrateBehaviour {
     kademlia: kad::Behaviour<kad::store::MemoryStore>,
     gossipsub: gossipsub::Behaviour,
-    mdns: mdns::tokio::Behaviour,
+    mdns: Toggle<mdns::tokio::Behaviour>,
     identify: identify::Behaviour,
 }
 
@@ -156,6 +173,7 @@ impl HyphaeNode {
             None => libp2p::identity::Keypair::generate_ed25519(),
         };
 
+        let enable_mdns = config.enable_mdns;
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_tcp(
@@ -167,7 +185,7 @@ impl HyphaeNode {
             .with_quic()
             .with_dns()
             .map_err(|e| HyphaeError::Germination(e.to_string()))?
-            .with_behaviour(|key| {
+            .with_behaviour(move |key| {
                 let peer_id = PeerId::from(key.public());
 
                 let mut kademlia = kad::Behaviour::new(
@@ -187,7 +205,15 @@ impl HyphaeNode {
                 )
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-                let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
+                let mdns = if enable_mdns {
+                    Toggle::from(Some(mdns::tokio::Behaviour::new(
+                        mdns::Config::default(),
+                        peer_id,
+                    )?))
+                } else {
+                    tracing::info!("mDNS desligado — discovery só via seeds/bootstrap");
+                    Toggle::from(None)
+                };
 
                 let identify = identify::Behaviour::new(identify::Config::new(
                     "/mycelium/substrate/0.1.0".into(),

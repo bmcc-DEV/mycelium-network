@@ -1,12 +1,6 @@
-# Mycelium Network — catálogo público de seeds (exemplo)
+# Exemplo — copie linhas reais para seeds/mainnet.txt após exportar um seed:
+#   mycelium daemon --listen /ip4/0.0.0.0/tcp/4001 --no-mdns
+#   ./scripts/export-seed.sh "$MYCELIUM_HOME" >> seeds/mainnet.txt
 #
-# Cada linha é uma multiaddr libp2p. Suporta /dnsaddr/ e /ip4/.../tcp/.../p2p/...
-# Publique um arquivo neste formato em HTTPS e aponte com:
-#   mycelium daemon --public-bootstrap --bootstrap-url https://seu.host/seeds.txt
-# ou:
-#   mycelium seeds fetch --url https://seu.host/seeds.txt
-#
-# Substitua pelos seeds reais da sua rede:
-
 # /dnsaddr/bootstrap.mycelium.network
 # /ip4/203.0.113.10/tcp/4001/p2p/12D3KooWExamplePeerIdReplaceMe0000000000000000000

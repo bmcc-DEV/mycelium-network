@@ -5,8 +5,8 @@
 //! por hifas aos núcleos vizinhos, que respondem; a **fusão** eventual usa
 //! um CRDT last-writer-wins por timestamp lógico.
 //!
-//! Stub coeso: sharding e fusão são in-memory; propagação real por hifas
-//! fica para a próxima fase.
+//! Escrita local respeita o shard; `absorb` aplica AtomSync vindo das hifas
+//! (LWW sem checagem de ownership — réplicas gossip).
 
 use mycelium_core::ContentId;
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ pub struct Atom {
 }
 
 /// Um shard do keyspace.
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Nucleus {
     /// Índice deste nucleus no anel de shards.
     pub index: u32,
@@ -60,14 +60,18 @@ impl Nucleus {
         if !self.owns(key) {
             return Err(IsotopeError::WrongNucleus(key.to_string()));
         }
-        let incoming = Atom { value, clock };
+        self.absorb(key, Atom { value, clock });
+        Ok(())
+    }
+
+    /// Absorve um átomo remoto (gossip) — LWW, ignora ownership.
+    pub fn absorb(&mut self, key: &str, atom: Atom) {
         match self.atoms.get(key) {
-            Some(existing) if existing.clock >= incoming.clock => {}
+            Some(existing) if existing.clock >= atom.clock => {}
             _ => {
-                self.atoms.insert(key.to_string(), incoming);
+                self.atoms.insert(key.to_string(), atom);
             }
         }
-        Ok(())
     }
 
     /// Consulta local (a resposta a um Decay que chegou por hifa).
@@ -76,15 +80,9 @@ impl Nucleus {
     }
 
     /// Fusão eventual: absorve os átomos de uma réplica do mesmo shard.
-    /// Last-writer-wins pelo relógio lógico.
     pub fn fuse(&mut self, replica: &Nucleus) {
         for (key, atom) in &replica.atoms {
-            match self.atoms.get(key) {
-                Some(existing) if existing.clock >= atom.clock => {}
-                _ => {
-                    self.atoms.insert(key.clone(), atom.clone());
-                }
-            }
+            self.absorb(key, atom.clone());
         }
     }
 
@@ -94,6 +92,10 @@ impl Nucleus {
 
     pub fn is_empty(&self) -> bool {
         self.atoms.is_empty()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.atoms.keys()
     }
 }
 
@@ -135,7 +137,6 @@ mod tests {
         a.fuse(&b);
         assert_eq!(a.decay(&key).unwrap().value, b"new");
 
-        // Fusão no sentido contrário não regride o valor.
         b.fuse(&a);
         assert_eq!(b.decay(&key).unwrap().clock, 2);
     }
@@ -148,5 +149,19 @@ mod tests {
         n.write(&key, b"v2".to_vec(), 2).unwrap();
         n.write(&key, b"v1".to_vec(), 1).unwrap();
         assert_eq!(n.decay(&key).unwrap().value, b"v2");
+    }
+
+    #[test]
+    fn absorb_accepts_foreign_shard_for_gossip() {
+        let mut n = Nucleus::new(0, 4);
+        let foreign = key_for_shard(2, 4);
+        n.absorb(
+            &foreign,
+            Atom {
+                value: b"via-hypha".to_vec(),
+                clock: 1,
+            },
+        );
+        assert_eq!(n.decay(&foreign).unwrap().value, b"via-hypha");
     }
 }

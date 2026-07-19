@@ -3747,6 +3747,7 @@ dependencies = [
 name = "vacuum"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "mycelium-core",
  "serde",
  "serde_json",

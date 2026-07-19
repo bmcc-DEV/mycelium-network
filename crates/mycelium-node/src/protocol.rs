@@ -1,7 +1,8 @@
 //! Envelope do protocolo Lattice — viaja pelo tópico `mycelium/lattice/v1`.
 
 use giggs::Plot;
-use inertia::Vector;
+use inertia::{Momentum, Vector};
+use isotope::Atom;
 use mycelium_core::{ContentId, NodeId};
 use serde::{Deserialize, Serialize};
 use thefield::Signal;
@@ -18,8 +19,20 @@ pub enum Envelope {
         signal_id: ContentId,
         resonator: NodeId,
     },
-    /// Vector do Inertia oferecido à rede.
+    /// Vector do Inertia oferecido à rede (CPU ociosa pode executar).
     VectorOffer { vector: Vector },
+    /// Resultado de um Vector executado (local ou remoto).
+    MomentumReport {
+        vector: Vector,
+        momentum: Momentum,
+        executor: NodeId,
+    },
+    /// Átomo do Isotope (estado LWW propagado por hifas).
+    AtomSync { key: String, atom: Atom },
+    /// Anúncio: este nó tem a layer content-addressed.
+    LayerOffer { id: ContentId },
+    /// Pedido: preciso desta layer (vizinhos com blob respondem via DHT/offer).
+    LayerNeed { id: ContentId },
 }
 
 impl Envelope {

@@ -25,8 +25,10 @@ pub enum SporeBankError {
 
 /// Prefixo das chaves DHT do Spore Bank.
 pub const DHT_KEY_PREFIX: &[u8] = b"spore/";
+/// Prefixo das chaves DHT de layers do Vacuum.
+pub const LAYER_DHT_KEY_PREFIX: &[u8] = b"layer/";
 
-/// Chave DHT para um ContentId.
+/// Chave DHT para um ContentId de Plot/esporo.
 pub fn dht_key(id: &ContentId) -> Vec<u8> {
     let mut key = DHT_KEY_PREFIX.to_vec();
     key.extend_from_slice(id.0.as_slice());
@@ -36,6 +38,24 @@ pub fn dht_key(id: &ContentId) -> Vec<u8> {
 /// Extrai ContentId de uma chave DHT `spore/...`.
 pub fn content_id_from_dht_key(key: &[u8]) -> Option<ContentId> {
     let rest = key.strip_prefix(DHT_KEY_PREFIX)?;
+    if rest.len() != 32 {
+        return None;
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(rest);
+    Some(ContentId(arr))
+}
+
+/// Chave DHT para uma layer do Vacuum.
+pub fn layer_dht_key(id: &ContentId) -> Vec<u8> {
+    let mut key = LAYER_DHT_KEY_PREFIX.to_vec();
+    key.extend_from_slice(id.0.as_slice());
+    key
+}
+
+/// Extrai ContentId de uma chave DHT `layer/...`.
+pub fn content_id_from_layer_dht_key(key: &[u8]) -> Option<ContentId> {
+    let rest = key.strip_prefix(LAYER_DHT_KEY_PREFIX)?;
     if rest.len() != 32 {
         return None;
     }
