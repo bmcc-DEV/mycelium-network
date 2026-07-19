@@ -1,13 +1,17 @@
-//! Event Horizon HTTP — reverse proxy por gravidade.
+//! Event Horizon HTTP — reverse proxy por gravidade + rate-limit básico.
 
 use crate::{HorizonTable, SingularityError};
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{header, StatusCode, Uri};
+use axum::middleware::{from_fn, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::Router;
-use std::net::SocketAddr;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 
 /// Handle para encerrar o horizon.
@@ -32,6 +36,48 @@ impl Drop for HorizonHandle {
     }
 }
 
+/// Janela e teto do rate-limit por IP (requests).
+const RATE_WINDOW: Duration = Duration::from_secs(60);
+const RATE_MAX: u32 = 120;
+
+fn rate_table() -> &'static Mutex<HashMap<IpAddr, (Instant, u32)>> {
+    static TABLE: OnceLock<Mutex<HashMap<IpAddr, (Instant, u32)>>> = OnceLock::new();
+    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn allow_ip(ip: IpAddr) -> bool {
+    let mut guard = match rate_table().lock() {
+        Ok(g) => g,
+        Err(_) => return true,
+    };
+    let now = Instant::now();
+    let entry = guard.entry(ip).or_insert((now, 0));
+    if now.duration_since(entry.0) > RATE_WINDOW {
+        *entry = (now, 1);
+        return true;
+    }
+    if entry.1 >= RATE_MAX {
+        return false;
+    }
+    entry.1 += 1;
+    true
+}
+
+async fn rate_gate(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if !allow_ip(addr.ip()) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate limit: tente de novo em até 60s",
+        )
+            .into_response();
+    }
+    next.run(req).await
+}
+
 /// Sobe o Event Horizon em `bind` (ex.: `127.0.0.1:7474`).
 pub async fn serve_horizon(
     bind: SocketAddr,
@@ -47,11 +93,16 @@ pub async fn serve_horizon(
         .route("/console", any(console))
         .route("/health", any(health))
         .route("/{*path}", any(proxy))
+        .layer(from_fn(rate_gate))
         .with_state(table);
 
     let (tx, rx) = oneshot::channel::<()>();
     tokio::spawn(async move {
-        let server = axum::serve(listener, app).with_graceful_shutdown(async {
+        let server = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async {
             let _ = rx.await;
         });
         if let Err(e) = server.await {

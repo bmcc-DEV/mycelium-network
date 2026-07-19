@@ -58,6 +58,9 @@ enum Commands {
         /// IP público anunciado (quando listen é 0.0.0.0). Env: MYCELIUM_ANNOUNCE_IP.
         #[arg(long = "announce-ip", env = "MYCELIUM_ANNOUNCE_IP")]
         announce_ip: Option<String>,
+        /// Opera como circuit relay v2 (seed público). Gera control.token se sem env.
+        #[arg(long = "relay")]
+        relay: bool,
     },
     Status,
     Sow {
@@ -166,6 +169,7 @@ fn main() {
             horizon_port,
             no_mdns,
             announce_ip,
+            relay,
         } => rt.block_on(daemon(
             &home,
             &contribute,
@@ -179,6 +183,7 @@ fn main() {
                 bootstrap_url,
                 no_mdns,
                 announce_ip,
+                enable_relay: relay,
             },
         )),
         Commands::Status => rt.block_on(status(&home)),
@@ -329,6 +334,9 @@ async fn daemon(
     }
     if let Some(ip) = &opts.announce_ip {
         println!("[🍄] Announce IP: {ip}");
+    }
+    if opts.enable_relay {
+        println!("[🍄] Relay server (circuit v2) ligado");
     }
     if !opts.listen.is_empty() {
         println!("[🍄] Listen: {:?}", opts.listen);

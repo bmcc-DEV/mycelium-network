@@ -116,7 +116,8 @@ mycelium.sock       plano de controle do daemon
 mycelium daemon --public-bootstrap --no-mdns
 ```
 
-Docs: [docs/ops-seed.md](docs/ops-seed.md) · Console Horizon: `http://127.0.0.1:7474/console`  
+Seed 24/7: `sudo ./scripts/install-seed.sh` (inclui `--relay`).  
+Docs: [docs/ops-seed.md](docs/ops-seed.md) · [docs/protocol.md](docs/protocol.md) · Console: `http://127.0.0.1:7474/console`  
 Auth do socket: `MYCELIUM_CONTROL_TOKEN=…`
 
 ## Desenvolvimento

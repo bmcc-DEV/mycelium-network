@@ -31,6 +31,8 @@ pub struct DaemonOptions {
     pub no_mdns: bool,
     /// IP público anunciado quando listen é 0.0.0.0.
     pub announce_ip: Option<String>,
+    /// Opera como circuit relay server (seeds públicos).
+    pub enable_relay: bool,
 }
 
 /// Desperta o daemon: socket de controle + loop do organismo.
@@ -46,9 +48,36 @@ pub async fn run_daemon(home: PathBuf, opts: DaemonOptions) -> Result<(), Organi
         bootstrap_url: opts.bootstrap_url,
         enable_mdns: !opts.no_mdns,
         announce_ip: opts.announce_ip,
+        enable_relay: opts.enable_relay,
     })?;
     let sock = organism.home().join("mycelium.sock");
-    let token = std::env::var("MYCELIUM_CONTROL_TOKEN").ok().filter(|t| !t.is_empty());
+    let mut token = std::env::var("MYCELIUM_CONTROL_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
+    // Seed/relay 24/7: exige token (ou gera um persistente em `{home}/control.token`).
+    if opts.enable_relay && token.is_none() {
+        let path = home.join("control.token");
+        token = Some(match std::fs::read_to_string(&path) {
+            Ok(t) if !t.trim().is_empty() => t.trim().to_string(),
+            _ => {
+                let material = format!(
+                    "mycelium-control|{}|{}",
+                    home.display(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0)
+                );
+                let t = mycelium_core::ContentId::of(material.as_bytes()).to_string();
+                let _ = std::fs::write(&path, &t);
+                tracing::warn!(
+                    token_file = %path.display(),
+                    "MYCELIUM_CONTROL_TOKEN ausente — gerado em control.token"
+                );
+                t
+            }
+        });
+    }
     let (tx, rx) = mpsc::channel(32);
 
     let serve_sock = sock.clone();

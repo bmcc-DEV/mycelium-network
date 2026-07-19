@@ -3,7 +3,7 @@
 //! Hifas são os links vivos do micélio. Não são "conexões TCP": são
 //! relacionamentos que fortalecem com o uso e atrofiam sem ele.
 //!
-//! - **Transporte**: QUIC + TCP/Noise/Yamux
+//! - **Transporte**: QUIC + TCP/Noise/Yamux + circuit relay v2
 //! - **Descoberta**: Kademlia DHT + mDNS + seed book público (dnsaddr/HTTP)
 //! - **Gossip**: tópicos de feromônios e do Lattice
 //! - **Spore Bank**: put/get de records no DHT
@@ -16,7 +16,7 @@ use futures::StreamExt;
 use libp2p::{
     gossipsub, identify, kad,
     kad::{store::RecordStore, Quorum, Record},
-    mdns, noise,
+    mdns, multiaddr::Protocol, noise, relay,
     swarm::{
         behaviour::toggle::Toggle,
         NetworkBehaviour, SwarmEvent,
@@ -60,6 +60,10 @@ pub struct HyphaeConfig {
     pub enable_mdns: bool,
     /// IP público anunciado quando listen é `0.0.0.0` (NAT / seed).
     pub announce_ip: Option<String>,
+    /// Opera como relay server (circuit v2) — típico de seed público.
+    pub enable_relay_server: bool,
+    /// Cliente relay: reserva circuito nos seeds de bootstrap.
+    pub enable_relay_client: bool,
 }
 
 impl Default for HyphaeConfig {
@@ -71,6 +75,8 @@ impl Default for HyphaeConfig {
             kad_bootstrap: false,
             enable_mdns: true,
             announce_ip: None,
+            enable_relay_server: false,
+            enable_relay_client: true,
         }
     }
 }
@@ -146,6 +152,10 @@ struct SubstrateBehaviour {
     gossipsub: gossipsub::Behaviour,
     mdns: Toggle<mdns::tokio::Behaviour>,
     identify: identify::Behaviour,
+    /// Relay server (só seed / `--relay`).
+    relay: Toggle<relay::Behaviour>,
+    /// Relay client (transporte + reservas).
+    relay_client: relay::client::Behaviour,
 }
 
 fn multiaddr_tcp_port(addr: &Multiaddr) -> Option<u16> {
@@ -187,6 +197,7 @@ impl HyphaeNode {
         };
 
         let enable_mdns = config.enable_mdns;
+        let enable_relay_server = config.enable_relay_server;
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_tcp(
@@ -198,14 +209,21 @@ impl HyphaeNode {
             .with_quic()
             .with_dns()
             .map_err(|e| HyphaeError::Germination(e.to_string()))?
-            .with_behaviour(move |key| {
+            .with_relay_client(noise::Config::new, yamux::Config::default)
+            .map_err(|e| HyphaeError::Germination(e.to_string()))?
+            .with_behaviour(move |key, relay_client| {
                 let peer_id = PeerId::from(key.public());
 
                 let mut kademlia = kad::Behaviour::new(
                     peer_id,
                     kad::store::MemoryStore::new(peer_id),
                 );
-                kademlia.set_mode(Some(kad::Mode::Client));
+                // Seeds / relay server entram como Server no DHT.
+                if enable_relay_server {
+                    kademlia.set_mode(Some(kad::Mode::Server));
+                } else {
+                    kademlia.set_mode(Some(kad::Mode::Client));
+                }
 
                 let gossip_config = gossipsub::ConfigBuilder::default()
                     .heartbeat_interval(Duration::from_secs(3))
@@ -233,11 +251,23 @@ impl HyphaeNode {
                     key.public(),
                 ));
 
+                let relay = if enable_relay_server {
+                    tracing::info!("relay server ligado (circuit v2)");
+                    Toggle::from(Some(relay::Behaviour::new(
+                        peer_id,
+                        relay::Config::default(),
+                    )))
+                } else {
+                    Toggle::from(None)
+                };
+
                 Ok(SubstrateBehaviour {
                     kademlia,
                     gossipsub,
                     mdns,
                     identify,
+                    relay,
+                    relay_client,
                 })
             })
             .map_err(|e| HyphaeError::Germination(e.to_string()))?
@@ -286,7 +316,8 @@ impl HyphaeNode {
         };
 
         let do_kad = config.kad_bootstrap && !config.bootstrap.is_empty();
-        for addr in config.bootstrap {
+        let bootstrap = config.bootstrap.clone();
+        for addr in &bootstrap {
             if let Err(e) = node.reach(addr.clone()) {
                 tracing::warn!(%addr, "seed dial falhou na germinação: {e}");
             }
@@ -294,8 +325,27 @@ impl HyphaeNode {
         if do_kad {
             let _ = node.kad_bootstrap();
         }
+        // Clientes: escuta via `/p2p-circuit` nos seeds (NAT traversal).
+        if config.enable_relay_client && !config.enable_relay_server {
+            node.listen_via_relays(&bootstrap);
+        }
 
         Ok(node)
+    }
+
+    /// Reserva circuito nos seeds: `…/p2p/<SEED>/p2p-circuit`.
+    pub fn listen_via_relays(&mut self, seeds: &[Multiaddr]) {
+        for addr in seeds {
+            if peer_from_multiaddr(addr).is_none() {
+                continue;
+            }
+            let mut circuit = addr.clone();
+            circuit.push(Protocol::P2pCircuit);
+            match self.swarm.listen_on(circuit.clone()) {
+                Ok(_) => tracing::info!(%circuit, "escutando via relay circuit"),
+                Err(e) => tracing::debug!(%circuit, "relay listen: {e}"),
+            }
+        }
     }
 
     pub fn peer_id(&self) -> PeerId {
@@ -379,6 +429,7 @@ impl HyphaeNode {
         }
         if ok > 0 {
             let _ = self.kad_bootstrap();
+            self.listen_via_relays(seeds);
         }
         ok
     }
@@ -584,6 +635,13 @@ impl HyphaeNode {
                             .kademlia
                             .add_address(&peer_id, addr);
                     }
+                    // Endereço observado pelo peer remoto — útil para NAT / relay.
+                    self.swarm.add_external_address(info.observed_addr);
+                }
+                SwarmEvent::Behaviour(SubstrateBehaviourEvent::RelayClient(
+                    relay::client::Event::ReservationReqAccepted { relay_peer_id, .. },
+                )) => {
+                    tracing::info!(relay = %relay_peer_id, "reserva relay aceita");
                 }
                 SwarmEvent::Behaviour(SubstrateBehaviourEvent::Gossipsub(
                     gossipsub::Event::Message { message, .. },

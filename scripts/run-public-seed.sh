@@ -24,6 +24,7 @@ else
       --listen "/ip4/0.0.0.0/tcp/${PORT}" \
       ${ANNOUNCE:+--announce-ip "$ANNOUNCE"} \
       --no-mdns \
+      --relay \
       --horizon-port "$HORIZON" \
       --contribute 2cpu,4gb,100gb \
       >"$HOME_DIR/daemon.log" 2>&1 &

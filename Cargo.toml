@@ -73,6 +73,7 @@ libp2p = { version = "0.56", features = [
     "macros",
     "ed25519",
     "dns",
+    "relay",
 ] }
 
 [profile.release]

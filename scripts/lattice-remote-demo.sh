@@ -75,8 +75,14 @@ curl -sS "http://127.0.0.1:17511/console" | grep -q "Event Horizon"
 curl -sS "http://127.0.0.1:17511/webapp/" | python3 -m json.tool >/dev/null
 echo "OK: Event Horizon console + chamber"
 
+echo "== B não deve frutar chamber (deploy só no origin) =="
+STATUS_B=$("$BIN" --home "$B" status)
+echo "$STATUS_B" | grep -q 'ions       : \[\]'
+! echo "$STATUS_B" | grep -q 'chamber    :'
+echo "OK: B sem ions/chamber; ATP remoto via VectorOffer"
+
 echo "== status =="
 "$BIN" --home "$A" status
 "$BIN" --home "$B" status
 
-echo "DONE — seed-file, layers, Inertia remoto, console"
+echo "DONE — seed-file, layers, Inertia remoto, deploy origin-only, console"

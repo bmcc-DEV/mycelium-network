@@ -54,6 +54,8 @@ pub struct OrganismConfig {
     pub enable_mdns: bool,
     /// IP público anunciado (NAT / seed).
     pub announce_ip: Option<String>,
+    /// Seed opera como circuit relay v2.
+    pub enable_relay: bool,
 }
 
 pub struct Organism {
@@ -140,6 +142,8 @@ impl Organism {
             kad_bootstrap: !seed_book.is_empty(),
             enable_mdns: config.enable_mdns,
             announce_ip,
+            enable_relay_server: config.enable_relay,
+            enable_relay_client: !config.enable_relay,
         })?;
         hyphae.restore_metrics(state.hypha_metrics.clone());
 
@@ -352,10 +356,23 @@ impl Organism {
                 name,
             } = &signal.proposal
             {
+                let i_am_origin = signal.origin == self.gland.node_id();
+                // Só o emissor do Signal faz Build→Test→Deploy local.
+                // Peers remotes ganham ATP via VectorOffer (Build/Test), sem frutar Chamber.
+                if !i_am_origin {
+                    tracing::info!(
+                        signal = %signal.id.short(),
+                        origin = %signal.origin.short(),
+                        "pipeline fired — peer remoto ignora Deploy (origin_only)"
+                    );
+                    self.processed.insert(signal.id);
+                    continue;
+                }
+
                 tracing::info!(
                     signal = %signal.id.short(),
                     ion = %target_ion,
-                    "pipeline fired — spinning inertia"
+                    "pipeline fired — spinning inertia (origin)"
                 );
                 let work = self.prepare_workbench(plot)?;
                 self.flywheel.inject(Vector {

@@ -1,5 +1,5 @@
 [Unit]
-Description=Mycelium Network public seed
+Description=Mycelium Network public seed (relay + DHT)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,20 +7,19 @@ Wants=network-online.target
 Type=simple
 User=mycelium
 Group=mycelium
-Environment=MYCELIUM_HOME=/var/lib/mycelium-seed
+EnvironmentFile=/etc/mycelium/seed.env
 Environment=RUST_LOG=info
-Environment=MYCELIUM_ANNOUNCE_IP=
-# Environment=MYCELIUM_CONTROL_TOKEN=change-me
-ExecStartPre=/usr/local/bin/mycelium --home ${MYCELIUM_HOME} sprout --contribute 2cpu,4gb,100gb
-ExecStart=/usr/local/bin/mycelium --home ${MYCELIUM_HOME} daemon \
+ExecStart=/usr/local/bin/mycelium daemon \
   --listen /ip4/0.0.0.0/tcp/4001 \
   --announce-ip ${MYCELIUM_ANNOUNCE_IP} \
   --no-mdns \
+  --relay \
   --horizon-port 7474 \
   --contribute 2cpu,4gb,100gb
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
+# Horizon fica em 127.0.0.1 — não exponha 7474 sem reverse proxy.
 
 [Install]
 WantedBy=multi-user.target
