@@ -4,7 +4,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use clap::{Parser, Subcommand};
 use mycelium_core::Resources;
-use mycelium_hyphae::{SeedBook, DEFAULT_BOOTSTRAP_URL};
+use mycelium_hyphae::{SeedBook, DEFAULT_BOOTSTRAP_URL, DEFAULT_DNS_SEED_NAME};
 use mycelium_node::{call, run_daemon, DaemonOptions, NodeStore, Request, Response};
 use serde_json::json;
 use std::net::SocketAddr;
@@ -58,9 +58,21 @@ enum Commands {
         /// IP público anunciado (quando listen é 0.0.0.0). Env: MYCELIUM_ANNOUNCE_IP.
         #[arg(long = "announce-ip", env = "MYCELIUM_ANNOUNCE_IP")]
         announce_ip: Option<String>,
+        /// IPv6 público anunciado (quando listen é `::`). Env: MYCELIUM_ANNOUNCE_IP6.
+        #[arg(long = "announce-ip6", env = "MYCELIUM_ANNOUNCE_IP6")]
+        announce_ip6: Option<String>,
         /// Opera como circuit relay v2 (seed público). Gera control.token se sem env.
         #[arg(long = "relay")]
         relay: bool,
+        /// Volunteer Sporocarp: relay + publish DNS TXT + crédito ATP.
+        #[arg(long = "sporocarp")]
+        sporocarp: bool,
+        /// Override da membrana (floresta|raiz|folha|esporocarp).
+        #[arg(long = "membrane", value_parser = parse_membrane)]
+        membrane: Option<mycelium_core::Membrane>,
+        /// Depreciado: ignorado (Política de Membrana — sem UPnP).
+        #[arg(long = "upnp")]
+        upnp: bool,
     },
     Status,
     Sow {
@@ -154,6 +166,9 @@ enum SeedsCmd {
     Fetch {
         #[arg(long)]
         url: Option<String>,
+        /// Nome DNS TXT do Spore Bank. Sem valor → default `_mycelium.seeds.duckdns.org`.
+        #[arg(long, num_args = 0..=1, default_missing_value = DEFAULT_DNS_SEED_NAME)]
+        dns: Option<String>,
     },
 }
 
@@ -189,7 +204,11 @@ fn main() {
             horizon_port,
             no_mdns,
             announce_ip,
+            announce_ip6,
             relay,
+            sporocarp,
+            membrane,
+            upnp,
         } => rt.block_on(daemon(
             &home,
             &contribute,
@@ -203,8 +222,12 @@ fn main() {
                 bootstrap_url,
                 no_mdns,
                 announce_ip,
-                enable_relay: relay,
+                announce_ip6,
+                enable_relay: relay || sporocarp,
+                sporocarp,
+                membrane,
             },
+            upnp,
         )),
         Commands::Status => rt.block_on(status(&home)),
         Commands::Sow {
@@ -289,6 +312,10 @@ fn resolve_home(override_home: Option<PathBuf>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".mycelium"))
 }
 
+fn parse_membrane(s: &str) -> Result<mycelium_core::Membrane, String> {
+    s.parse()
+}
+
 fn seeds_cmd(home: &PathBuf, action: SeedsCmd) -> Result<(), String> {
     let path = home.join("seeds.txt");
     match action {
@@ -314,13 +341,33 @@ fn seeds_cmd(home: &PathBuf, action: SeedsCmd) -> Result<(), String> {
             println!("[🍄] seed adicionada: {addr}");
             Ok(())
         }
-        SeedsCmd::Fetch { url } => {
-            let url = url.unwrap_or_else(|| DEFAULT_BOOTSTRAP_URL.to_string());
+        SeedsCmd::Fetch { url, dns } => {
             let mut book = SeedBook::new();
             book.load_file(&path).map_err(|e| e.to_string())?;
-            let n = book.fetch_url(&url).map_err(|e| e.to_string())?;
+            let mut added = 0usize;
+            if let Some(name) = dns {
+                let name = if name.is_empty() {
+                    DEFAULT_DNS_SEED_NAME.to_string()
+                } else {
+                    name
+                };
+                let n = book.fetch_dns_txt(&name).map_err(|e| e.to_string())?;
+                added += n;
+                println!("[🍄] +{n} seeds DNS TXT `{name}`");
+            } else if url.is_none() {
+                // Sem flags: HTTP legado (comportamento anterior).
+                let u = DEFAULT_BOOTSTRAP_URL.to_string();
+                let n = book.fetch_url(&u).map_err(|e| e.to_string())?;
+                added += n;
+                println!("[🍄] +{n} seeds de {u}");
+            }
+            if let Some(u) = url {
+                let n = book.fetch_url(&u).map_err(|e| e.to_string())?;
+                added += n;
+                println!("[🍄] +{n} seeds de {u}");
+            }
             book.save_file(&path).map_err(|e| e.to_string())?;
-            println!("[🍄] +{n} seeds de {url} → {}", path.display());
+            println!("[🍄] total +{added} → {}", path.display());
             for s in book.as_strings() {
                 println!("  {s}");
             }
@@ -356,11 +403,15 @@ async fn daemon(
     home: &PathBuf,
     contribute: &str,
     mut opts: DaemonOptions,
+    upnp_flag: bool,
 ) -> Result<(), String> {
     let resources = Resources::from_str(contribute).map_err(|e| e.to_string())?;
     opts.contribute = Some(resources);
     println!("[🍄] Despertando organismo em {}…", home.display());
     println!("[🍄] Event Horizon em http://127.0.0.1:{}/", opts.horizon_port);
+    if upnp_flag {
+        println!("[🍄] --upnp ignorado — Política de Membrana (sem STUN/UPnP)");
+    }
     if opts.public_bootstrap {
         println!(
             "[🍄] Bootstrap público: {}",
@@ -373,13 +424,23 @@ async fn daemon(
         println!("[🍄] mDNS desligado — só seed book / bootstrap");
     }
     if let Some(ip) = &opts.announce_ip {
-        println!("[🍄] Announce IP: {ip}");
+        println!("[🍄] Announce IP (raiz IPv4 declarada): {ip}");
     }
-    if opts.enable_relay {
+    if let Some(ip6) = &opts.announce_ip6 {
+        println!("[🍄] Announce IPv6: {ip6}");
+    }
+    if let Some(m) = opts.membrane {
+        println!("[🍄] Membrana forçada: {m}");
+    }
+    if opts.sporocarp {
+        println!("[🍄] Sporocarp (relay + DNS) ligado — membrana esporocarp");
+    } else if opts.enable_relay {
         println!("[🍄] Relay server (circuit v2) ligado");
     }
     if !opts.listen.is_empty() {
         println!("[🍄] Listen: {:?}", opts.listen);
+    } else {
+        println!("[🍄] Listen: auto conforme membrana (folha=loopback IPv4)");
     }
     if std::env::var("MYCELIUM_CONTROL_TOKEN").ok().filter(|t| !t.is_empty()).is_some() {
         println!("[🍄] Control socket com auth (MYCELIUM_CONTROL_TOKEN)");
@@ -581,6 +642,15 @@ fn print_response(resp: Response) -> Result<(), String> {
                 "    hifas      : anastomoses={} atrophies={} msg_in={} msg_out={}",
                 s.anastomoses, s.atrophies, s.messages_in, s.messages_out
             );
+            if !s.membrane.is_empty() {
+                println!("    membrana   : {}", s.membrane);
+            }
+            if s.sporocarp {
+                println!("    sporocarp  : sim");
+            }
+            if let Some(dns) = &s.dns_seed {
+                println!("    dns_seed   : {dns}");
+            }
             Ok(())
         }
         Response::Err { message } => Err(message),

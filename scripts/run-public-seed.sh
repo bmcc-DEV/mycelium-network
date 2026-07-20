@@ -7,6 +7,7 @@ HOME_DIR="${MYCELIUM_HOME:-$HOME/.local/share/mycelium-seed}"
 PORT="${SEED_PORT:-4001}"
 HORIZON="${HORIZON_PORT:-7477}"
 ANNOUNCE="${MYCELIUM_ANNOUNCE_IP:-$(curl -4 -sS --max-time 5 ifconfig.me || true)}"
+ANNOUNCE6="${MYCELIUM_ANNOUNCE_IP6:-$(curl -6 -sS --max-time 5 ifconfig.co || true)}"
 
 mkdir -p "$HOME_DIR"
 if [[ ! -x "$BIN" ]]; then
@@ -17,14 +18,17 @@ if [[ -S "$HOME_DIR/mycelium.sock" ]]; then
   echo "seed já rodando em $HOME_DIR"
 else
   "$BIN" --home "$HOME_DIR" sprout --contribute 2cpu,4gb,100gb >/dev/null
-  echo "subindo seed listen=0.0.0.0:${PORT} announce=${ANNOUNCE:-?} …"
+  echo "subindo sporocarp listen=0.0.0.0:${PORT} announce=${ANNOUNCE:-?} ip6=${ANNOUNCE6:-?} …"
   nohup env RUST_LOG=info \
     MYCELIUM_ANNOUNCE_IP="${ANNOUNCE}" \
+    MYCELIUM_ANNOUNCE_IP6="${ANNOUNCE6}" \
     "$BIN" --home "$HOME_DIR" daemon \
       --listen "/ip4/0.0.0.0/tcp/${PORT}" \
+      --listen "/ip6/::/tcp/${PORT}" \
       ${ANNOUNCE:+--announce-ip "$ANNOUNCE"} \
+      ${ANNOUNCE6:+--announce-ip6 "$ANNOUNCE6"} \
       --no-mdns \
-      --relay \
+      --sporocarp \
       --horizon-port "$HORIZON" \
       --contribute 2cpu,4gb,100gb \
       >"$HOME_DIR/daemon.log" 2>&1 &

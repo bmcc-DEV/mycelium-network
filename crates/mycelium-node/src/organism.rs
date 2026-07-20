@@ -6,8 +6,11 @@ use crate::store::{IonRecord, NodeStore, OrganismState, StoreError};
 use giggs::{Leaf, Plot};
 use inertia::{Flywheel, Momentum, Thrust, Vector};
 use isotope::{Atom, Nucleus, DEFAULT_RING_SIZE};
-use mycelium_core::{ContentId, NodeId, Nutrient, Resources};
-use mycelium_hyphae::{HyphaEvent, HyphaeConfig, HyphaeNode, SeedBook};
+use mycelium_core::{ContentId, Membrane, NodeId, Nutrient, Resources};
+use mycelium_hyphae::{
+    detect_global_ipv6, diagnose_membrane, with_membrane_flag, HyphaEvent, HyphaeConfig, HyphaeNode,
+    SeedBook, DEFAULT_DNS_SEED_NAME,
+};
 use mycelium_nutrients::Ledger;
 use mycelium_pheromones::{Gland, Trail};
 use mycelium_sporebank::{
@@ -54,8 +57,14 @@ pub struct OrganismConfig {
     pub enable_mdns: bool,
     /// IP público anunciado (NAT / seed).
     pub announce_ip: Option<String>,
+    /// IPv6 público anunciado (`MYCELIUM_ANNOUNCE_IP6`).
+    pub announce_ip6: Option<String>,
     /// Seed opera como circuit relay v2.
     pub enable_relay: bool,
+    /// Volunteer Sporocarp: relay + DNS + crédito ATP.
+    pub sporocarp: bool,
+    /// Override explícito da membrana (`--membrane`).
+    pub membrane: Option<Membrane>,
 }
 
 pub struct Organism {
@@ -81,6 +90,9 @@ pub struct Organism {
     remote_done: HashSet<String>,
     /// Decays em curso (miss local → DecayQuery broadcast).
     pending_decays: HashSet<String>,
+    sporocarp: bool,
+    membrane: Membrane,
+    dns_seed: Option<String>,
 }
 
 impl Organism {
@@ -133,10 +145,40 @@ impl Organism {
             .filter_map(|s| s.parse().ok())
             .collect();
 
-        let bootstrap_addrs = seed_book.multiaddrs();
         let announce_ip = config
             .announce_ip
             .or_else(|| std::env::var("MYCELIUM_ANNOUNCE_IP").ok());
+        let announce_ip6 = config
+            .announce_ip6
+            .or_else(|| std::env::var("MYCELIUM_ANNOUNCE_IP6").ok());
+        let has_global_ip6 = announce_ip6.is_some() || detect_global_ipv6();
+        let membrane = diagnose_membrane(
+            has_global_ip6,
+            announce_ip.as_deref(),
+            config.sporocarp,
+            config.membrane,
+        );
+        // Relay server só em esporocarp (ou --relay explícito legado).
+        let enable_relay_server =
+            config.enable_relay || matches!(membrane, Membrane::Esporocarp);
+        let enable_relay_client = !enable_relay_server;
+
+        let bootstrap_addrs = seed_book.multiaddrs_for(membrane);
+        let dns_seed = std::env::var("MYCELIUM_DNS_SEEDS")
+            .ok()
+            .or_else(|| {
+                if config.public_bootstrap || config.sporocarp {
+                    Some(DEFAULT_DNS_SEED_NAME.to_string())
+                } else {
+                    None
+                }
+            });
+        tracing::info!(
+            %membrane,
+            has_global_ip6,
+            announce_ip = announce_ip.as_deref().unwrap_or("-"),
+            "membrana diagnosticada"
+        );
         let mut hyphae = HyphaeNode::germinate_with(HyphaeConfig {
             seed: Some(gland.seed()),
             listen,
@@ -144,8 +186,10 @@ impl Organism {
             kad_bootstrap: !seed_book.is_empty(),
             enable_mdns: config.enable_mdns,
             announce_ip,
-            enable_relay_server: config.enable_relay,
-            enable_relay_client: !config.enable_relay,
+            announce_ip6,
+            enable_relay_server,
+            enable_relay_client,
+            membrane,
         })?;
         hyphae.restore_metrics(state.hypha_metrics.clone());
 
@@ -193,6 +237,9 @@ impl Organism {
             build_artifacts: HashMap::new(),
             remote_done: HashSet::new(),
             pending_decays: HashSet::new(),
+            sporocarp: config.sporocarp || matches!(membrane, Membrane::Esporocarp),
+            membrane,
+            dns_seed,
         };
 
         for rec in records {
@@ -273,6 +320,9 @@ impl Organism {
             isotope_atoms: self.nucleus.len(),
             isotope_shard: self.nucleus.index,
             isotope_ring: self.nucleus.ring_size,
+            membrane: self.membrane.as_str().to_string(),
+            sporocarp: self.sporocarp,
+            dns_seed: self.dns_seed.clone(),
         }
     }
 
@@ -1017,7 +1067,7 @@ impl Organism {
 
         let pheromone = self
             .gland
-            .secrete(Trail::default(), Duration::from_secs(3600))
+            .secrete_membrane(Trail::default(), Duration::from_secs(3600), self.membrane)
             .map_err(|e| OrganismError::Msg(e.to_string()))?;
         let pheromone_bytes =
             serde_json::to_vec(&pheromone).map_err(|e| OrganismError::Msg(e.to_string()))?;
@@ -1025,8 +1075,19 @@ impl Organism {
         let mut persist_tick = tokio::time::interval(Duration::from_secs(15));
         let mut heartbeat = tokio::time::interval(Duration::from_secs(3600));
         let mut seed_tick = tokio::time::interval(Duration::from_secs(120));
+        let mut duckdns_tick = tokio::time::interval(Duration::from_secs(300));
         // Primeiro tick imediato já foi coberto na germinação; atrasa o próximo.
         seed_tick.tick().await;
+        // DuckDNS: espera um pouco para ter listen addrs.
+        duckdns_tick.tick().await;
+
+        if self.sporocarp {
+            tracing::info!("sporocarp ativo — relay + DNS (se DUCKDNS_*) — sem UPnP");
+        }
+        tracing::info!(
+            membrane = %self.membrane,
+            "política de membrana"
+        );
 
         tracing::info!(
             node = %self.gland.node_id().short(),
@@ -1061,8 +1122,25 @@ impl Organism {
                     let _ = self.store.save_ledger(&self.ledger);
                 }
 
+                _ = duckdns_tick.tick() => {
+                    if self.sporocarp {
+                        let hyphae_addr = self.hyphae.best_public_addr().map(|a| {
+                            with_membrane_flag(&a.to_string(), self.membrane)
+                        });
+                        let token = std::env::var("DUCKDNS_TOKEN").ok();
+                        let domain = std::env::var("DUCKDNS_DOMAIN").ok();
+                        if let (Some(token), Some(domain), Some(txt)) = (token, domain, hyphae_addr) {
+                            tokio::task::spawn_blocking(move || {
+                                if let Err(e) = SeedBook::publish_duckdns_txt(&domain, &token, &txt) {
+                                    tracing::warn!("DuckDNS publish: {e}");
+                                }
+                            });
+                        }
+                    }
+                }
+
                 _ = seed_tick.tick() => {
-                    let addrs = self.seed_book.multiaddrs();
+                    let addrs = self.seed_book.multiaddrs_for(self.membrane);
                     if !addrs.is_empty() {
                         let n = self.hyphae.reach_seeds(&addrs);
                         if n > 0 {
@@ -1109,6 +1187,17 @@ impl Organism {
                         Some(HyphaEvent::Rooted { address }) => {
                             tracing::info!(%address, "enraizado");
                             let _ = self.persist();
+                        }
+                        Some(HyphaEvent::SporocarpCircuit { src, dst }) => {
+                            if self.sporocarp {
+                                self.ledger.feed(
+                                    Nutrient::Atp,
+                                    1,
+                                    format!("sporocarp-relay:{src}->{dst}"),
+                                );
+                                self.ledger.feed(Nutrient::Spores, 1, "sporocarp-relay");
+                                let _ = self.store.save_ledger(&self.ledger);
+                            }
                         }
                         Some(HyphaEvent::NeighborSniffed { peer })
                         | Some(HyphaEvent::Anastomosis { peer }) => {

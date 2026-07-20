@@ -1,57 +1,64 @@
-# Operar um seed público
+# Operar um seed / Sporocarp doméstico
+
+O seed público **não exige VPS**. Preferência: **Volunteer Sporocarp** com IPv6 (floresta) ou port-forward IPv4 explícito (raiz). Sem UPnP/STUN — ver [`rizomorphs.md`](rizomorphs.md).
 
 ## Requisitos
 
-- Porta **TCP 4001** (e idealmente UDP 4001 para QUIC) aberta no firewall / NAT
+- Ideal: **IPv6** nativo no ISP (floresta)
+- Ou **port-forward TCP/UDP 4001** declarado com `--announce-ip` (raiz)
 - Binário `mycelium` (`cargo install --path cli/mycelium-cli`)
 
-## Install systemd (recomendado)
-
-```bash
-cargo build -p mycelium-cli --release
-sudo ./scripts/install-seed.sh --announce-ip $(curl -4 -s ifconfig.me)
-```
-
-Isso cria user `mycelium`, `/etc/mycelium/seed.env` (com `MYCELIUM_CONTROL_TOKEN`), unit com `--relay`, e `systemctl enable --now mycelium-seed`.
-
-## Subir manual
+## Sporocarp em casa (recomendado)
 
 ```bash
 export MYCELIUM_HOME=/var/lib/mycelium-seed
-export MYCELIUM_ANNOUNCE_IP=$(curl -4 -s ifconfig.me)
+export MYCELIUM_ANNOUNCE_IP6=$(curl -6 -s ifconfig.co)   # se tiver IPv6
+# Se só IPv4 com port-forward:
+# export MYCELIUM_ANNOUNCE_IP=$(curl -4 -s ifconfig.co)
+export DUCKDNS_TOKEN=seu-token
+export DUCKDNS_DOMAIN=meuspores
 export MYCELIUM_CONTROL_TOKEN=$(openssl rand -hex 16)
 
 mycelium sprout --contribute 2cpu,4gb,100gb
 mycelium daemon \
+  --listen /ip6/::/tcp/4001 \
   --listen /ip4/0.0.0.0/tcp/4001 \
-  --announce-ip "$MYCELIUM_ANNOUNCE_IP" \
+  --sporocarp \
   --no-mdns \
-  --relay \
   --horizon-port 7474 \
   --contribute 2cpu,4gb,100gb
 ```
 
-Com `--relay`, o seed aceita circuites v2. Sem `MYCELIUM_CONTROL_TOKEN`, o daemon gera `{home}/control.token`.
+Com `--sporocarp`:
 
-Event Horizon fica em `127.0.0.1:7474` (não exponha sem proxy). Rate-limit: 120 req/min por IP.
+- membrana **esporocarp** + relay server (circuit v2)
+- publish periódico do melhor multiaddr + `/esporocarp` no DuckDNS TXT (se `DUCKDNS_*`)
+- crédito ATP/Spores por circuito aceito
 
-## Publicar no catálogo
+Sem `MYCELIUM_CONTROL_TOKEN`, o daemon gera `{home}/control.token`.
+
+## Install systemd (VPS ou casa)
 
 ```bash
-./scripts/export-seed.sh "$MYCELIUM_HOME"
-# cole a linha TCP+/p2p/ em seeds/mainnet.txt, commit e push
+sudo ./scripts/install-seed.sh
 ```
 
-Clientes (escutam via `/p2p-circuit` no seed):
+O unit legado usa `--relay`. Para sporocarp, ajuste o service para `--sporocarp` e `DUCKDNS_*` em `/etc/mycelium/seed.env`.
+
+## Clientes (folhas)
 
 ```bash
 mycelium daemon --public-bootstrap --no-mdns
-# ou
-mycelium daemon --seed-file ./seeds/mainnet.txt --no-mdns
 ```
 
-Multiaddr relayed típico: `/ip4/SEED_IP/tcp/4001/p2p/SEED_PEER/p2p-circuit/p2p/LOCAL_PEER`
+Folhas priorizam seeds `/esporocarp` e não dialam `/folha`.
 
-## NAT em casa
+## Catálogo
 
-Sem port-forward, peers externos não alcançam o seed. Encaminhe TCP 4001 → máquina do seed no roteador, ou use um VPS com IP limpo. Relay ajuda peers só-NAT a se conectarem **através** do seed público.
+**DNS (preferido):** o sporocarp atualiza DuckDNS sozinho.
+
+**HTTP:** `seeds/mainnet.txt` no GitHub via `--public-bootstrap`.
+
+## Filosofia
+
+IPv6 direto → esporocarp relay. IPv4 só com port-forward declarado. Sem “enganar” o NAT.

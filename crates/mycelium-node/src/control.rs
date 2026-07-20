@@ -91,6 +91,15 @@ pub struct StatusReport {
     /// Tamanho do anel Isotope.
     #[serde(default)]
     pub isotope_ring: u32,
+    /// Membrana fisiológica: floresta | raiz | folha | esporocarp.
+    #[serde(default)]
+    pub membrane: String,
+    /// Volunteer Sporocarp (relay comunitário).
+    #[serde(default)]
+    pub sporocarp: bool,
+    /// Nome DNS TXT do Spore Bank em uso (se configurado).
+    #[serde(default)]
+    pub dns_seed: Option<String>,
 }
 
 /// Mensagem interna: pedido + canal de resposta.

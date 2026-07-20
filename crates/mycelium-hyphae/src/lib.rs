@@ -4,13 +4,20 @@
 //! relacionamentos que fortalecem com o uso e atrofiam sem ele.
 //!
 //! - **Transporte**: QUIC + TCP/Noise/Yamux + circuit relay v2
-//! - **Descoberta**: Kademlia DHT + mDNS + seed book público (dnsaddr/HTTP)
+//! - **Descoberta**: Kademlia DHT + mDNS + seed book (HTTP + DNS TXT)
 //! - **Gossip**: tópicos de feromônios e do Lattice
 //! - **Spore Bank**: put/get de records no DHT
+//! - **Membrana**: floresta/raiz/folha/esporocarp (sem STUN/UPnP/DCUtR)
 
+mod membrane;
 mod seeds;
 
-pub use seeds::{SeedBook, DEFAULT_BOOTSTRAP_URL};
+pub use membrane::{default_listen_addrs, seed_dial_rank};
+pub use mycelium_core::{detect_global_ipv6, diagnose_membrane, Membrane};
+pub use seeds::{
+    split_membrane_suffix, with_membrane_flag, SeedBook, DEFAULT_BOOTSTRAP_URL,
+    DEFAULT_DNS_SEED_NAME,
+};
 
 use futures::StreamExt;
 use libp2p::{
@@ -60,10 +67,14 @@ pub struct HyphaeConfig {
     pub enable_mdns: bool,
     /// IP público anunciado quando listen é `0.0.0.0` (NAT / seed).
     pub announce_ip: Option<String>,
+    /// IPv6 público anunciado quando listen é `::`.
+    pub announce_ip6: Option<String>,
     /// Opera como relay server (circuit v2) — típico de seed público.
     pub enable_relay_server: bool,
     /// Cliente relay: reserva circuito nos seeds de bootstrap.
     pub enable_relay_client: bool,
+    /// Membrana fisiológica (afeta listen default se `listen` vazio).
+    pub membrane: Membrane,
 }
 
 impl Default for HyphaeConfig {
@@ -75,8 +86,10 @@ impl Default for HyphaeConfig {
             kad_bootstrap: false,
             enable_mdns: true,
             announce_ip: None,
+            announce_ip6: None,
             enable_relay_server: false,
             enable_relay_client: true,
+            membrane: Membrane::Folha,
         }
     }
 }
@@ -97,6 +110,11 @@ pub enum HyphaEvent {
     RecordFound { key: Vec<u8>, value: Vec<u8> },
     /// Query DHT terminou sem resultado.
     RecordNotFound { key: Vec<u8> },
+    /// Sporocarp aceitou um circuito relay (crédito ATP).
+    SporocarpCircuit {
+        src: PeerId,
+        dst: PeerId,
+    },
 }
 
 /// Métricas de um relacionamento vivo com um vizinho.
@@ -152,19 +170,63 @@ struct SubstrateBehaviour {
     gossipsub: gossipsub::Behaviour,
     mdns: Toggle<mdns::tokio::Behaviour>,
     identify: identify::Behaviour,
-    /// Relay server (só seed / `--relay`).
+    /// Relay server (só seed / `--relay` / `--sporocarp`).
     relay: Toggle<relay::Behaviour>,
     /// Relay client (transporte + reservas).
     relay_client: relay::client::Behaviour,
 }
 
-fn multiaddr_tcp_port(addr: &Multiaddr) -> Option<u16> {
+/// Extrai porta TCP de uma multiaddr.
+pub fn multiaddr_tcp_port(addr: &Multiaddr) -> Option<u16> {
     for proto in addr.iter() {
         if let libp2p::multiaddr::Protocol::Tcp(port) = proto {
             return Some(port);
         }
     }
     None
+}
+
+/// Rank para ordenação IPv6-first (menor = preferido).
+pub fn addr_family_rank(addr: &Multiaddr) -> u8 {
+    for p in addr.iter() {
+        match p {
+            Protocol::Ip6(ip) => {
+                if ip.is_loopback() || ip.is_unspecified() {
+                    return 2;
+                }
+                // Preferência: global unicast antes de ULA/link-local.
+                if is_globalish_ipv6(&ip) {
+                    return 0;
+                }
+                return 1;
+            }
+            Protocol::Ip4(ip) => {
+                if ip.is_loopback() || ip.is_unspecified() {
+                    return 4;
+                }
+                return 3;
+            }
+            _ => {}
+        }
+    }
+    5
+}
+
+fn is_globalish_ipv6(ip: &std::net::Ipv6Addr) -> bool {
+    // Evita ::1, fe80::/10, fc00::/7 — o resto trata como candidato direto.
+    !ip.is_loopback()
+        && !ip.is_unspecified()
+        && !ip.is_unicast_link_local()
+        && (ip.segments()[0] & 0xfe00) != 0xfc00
+}
+
+/// Ordena multiaddrs: IPv6 global → IPv6 local → IPv4 → resto.
+pub fn sort_addrs_ipv6_first(addrs: &mut [Multiaddr]) {
+    addrs.sort_by(|a, b| {
+        addr_family_rank(a)
+            .cmp(&addr_family_rank(b))
+            .then_with(|| a.to_string().cmp(&b.to_string()))
+    });
 }
 
 /// Um nó do micélio: swarm libp2p + estado dos links vivos.
@@ -177,6 +239,7 @@ pub struct HyphaeNode {
     metrics: HyphaMetrics,
     last_decay: Instant,
     announce_ip: Option<String>,
+    announce_ip6: Option<String>,
 }
 
 impl HyphaeNode {
@@ -288,12 +351,8 @@ impl HyphaeNode {
             .map_err(|e| HyphaeError::Germination(e.to_string()))?;
 
         let listen = if config.listen.is_empty() {
-            vec![
-                "/ip4/0.0.0.0/udp/0/quic-v1"
-                    .parse()
-                    .expect("multiaddr estático"),
-                "/ip4/0.0.0.0/tcp/0".parse().expect("multiaddr estático"),
-            ]
+            let has_v6 = config.announce_ip6.is_some() || detect_global_ipv6();
+            default_listen_addrs(config.membrane, has_v6)
         } else {
             config.listen
         };
@@ -313,10 +372,13 @@ impl HyphaeNode {
             metrics: HyphaMetrics::default(),
             last_decay: Instant::now(),
             announce_ip: config.announce_ip.clone(),
+            announce_ip6: config.announce_ip6.clone(),
         };
 
+        // Bootstrap: IPv6 primeiro (SeedBook já ordena; reordena por segurança).
         let do_kad = config.kad_bootstrap && !config.bootstrap.is_empty();
-        let bootstrap = config.bootstrap.clone();
+        let mut bootstrap = config.bootstrap.clone();
+        bootstrap.sort_by_key(|a| addr_family_rank(a));
         for addr in &bootstrap {
             if let Err(e) = node.reach(addr.clone()) {
                 tracing::warn!(%addr, "seed dial falhou na germinação: {e}");
@@ -365,47 +427,123 @@ impl HyphaeNode {
         &self.listen_addrs
     }
 
-    /// Endereços com `/p2p/<PeerId>` embutido — prontos para dial remoto
-    /// (`0.0.0.0` → `127.0.0.1` + opcional `--announce-ip` em todas as portas TCP).
+    /// Endereços com `/p2p/<PeerId>` embutido — prontos para dial remoto.
+    /// IPv6 global antes de IPv4 (hifa direta primeiro).
     pub fn dialable_addrs(&self) -> Vec<Multiaddr> {
         let peer = self.peer_id();
         let mut out = Vec::new();
-        let mut tcp_ports: Vec<u16> = Vec::new();
+        let mut tcp_ports_v4: Vec<u16> = Vec::new();
+        let mut tcp_ports_v6: Vec<u16> = Vec::new();
         for a in &self.listen_addrs {
             let s = a.to_string();
             if s.contains("/ip4/0.0.0.0/") {
                 let local = s.replace("/ip4/0.0.0.0/", "/ip4/127.0.0.1/");
                 if let Ok(mut addr) = local.parse::<Multiaddr>() {
                     if !addr.to_string().contains("/p2p/") {
-                        addr.push(libp2p::multiaddr::Protocol::P2p(peer));
+                        addr.push(Protocol::P2p(peer));
                     }
                     out.push(addr);
+                }
+                if let Some(port) = multiaddr_tcp_port(a) {
+                    if !tcp_ports_v4.contains(&port) {
+                        tcp_ports_v4.push(port);
+                    }
+                }
+                continue;
+            }
+            if s.contains("/ip6/::/") {
+                let local = s.replace("/ip6/::/", "/ip6/::1/");
+                if let Ok(mut addr) = local.parse::<Multiaddr>() {
+                    if !addr.to_string().contains("/p2p/") {
+                        addr.push(Protocol::P2p(peer));
+                    }
+                    out.push(addr);
+                }
+                if let Some(port) = multiaddr_tcp_port(a) {
+                    if !tcp_ports_v6.contains(&port) {
+                        tcp_ports_v6.push(port);
+                    }
                 }
                 continue;
             }
             let mut addr = a.clone();
             if !addr.to_string().contains("/p2p/") {
-                addr.push(libp2p::multiaddr::Protocol::P2p(peer));
+                addr.push(Protocol::P2p(peer));
             }
             out.push(addr.clone());
-            // Extrai porta TCP para anunciar IP público (libp2p não reporta 0.0.0.0).
             if let Some(port) = multiaddr_tcp_port(&addr) {
-                if !tcp_ports.contains(&port) {
-                    tcp_ports.push(port);
+                if is_ip6(&addr) {
+                    if !tcp_ports_v6.contains(&port) {
+                        tcp_ports_v6.push(port);
+                    }
+                } else if !tcp_ports_v4.contains(&port) {
+                    tcp_ports_v4.push(port);
+                }
+            }
+        }
+        if let Some(ip6) = &self.announce_ip6 {
+            for port in &tcp_ports_v6 {
+                let s = format!("/ip6/{ip6}/tcp/{port}/p2p/{peer}");
+                if let Ok(addr) = s.parse::<Multiaddr>() {
+                    out.push(addr);
+                }
+            }
+            // Se só escutamos v4 unbound, ainda anunciamos v6 na porta v4.
+            if tcp_ports_v6.is_empty() {
+                for port in &tcp_ports_v4 {
+                    let s = format!("/ip6/{ip6}/tcp/{port}/p2p/{peer}");
+                    if let Ok(addr) = s.parse::<Multiaddr>() {
+                        out.push(addr);
+                    }
                 }
             }
         }
         if let Some(ip) = &self.announce_ip {
-            for port in tcp_ports {
+            for port in &tcp_ports_v4 {
                 let s = format!("/ip4/{ip}/tcp/{port}/p2p/{peer}");
                 if let Ok(addr) = s.parse::<Multiaddr>() {
                     out.push(addr);
                 }
             }
         }
-        out.sort_by_key(|a| a.to_string());
+        out.sort_by_key(|a| (addr_family_rank(a), a.to_string()));
         out.dedup();
         out
+    }
+
+    /// Preferência pública para Spore Bank DNS (IPv6 anunciado > IPv4 anunciado > resto).
+    pub fn best_public_addr(&self) -> Option<Multiaddr> {
+        let addrs = self.dialable_addrs();
+        addrs
+            .iter()
+            .find(|a| {
+                let s = a.to_string();
+                s.contains("/ip6/")
+                    && !s.contains("/ip6/::1/")
+                    && !s.contains("/ip6/::/")
+            })
+            .or_else(|| {
+                addrs.iter().find(|a| {
+                    let s = a.to_string();
+                    s.contains("/ip4/")
+                        && !s.contains("127.0.0.1")
+                        && !s.contains("0.0.0.0")
+                })
+            })
+            .cloned()
+    }
+
+    pub fn set_announce_ip(&mut self, ip: Option<String>) {
+        self.announce_ip = ip;
+    }
+
+    pub fn set_announce_ip6(&mut self, ip: Option<String>) {
+        self.announce_ip6 = ip;
+    }
+
+    /// Primeira porta TCP de listen observada.
+    pub fn first_tcp_listen_port(&self) -> Option<u16> {
+        self.listen_addrs.iter().find_map(multiaddr_tcp_port)
     }
 
     /// Dispara bootstrap Kademlia (requer pelo menos um peer conhecido).
@@ -418,10 +556,12 @@ impl HyphaeNode {
             .map_err(|e| HyphaeError::Dht(e.to_string()))
     }
 
-    /// Re-diala um conjunto de seeds (catálogo público / arquivo).
+    /// Re-diala um conjunto de seeds (catálogo público / arquivo). IPv6 primeiro.
     pub fn reach_seeds(&mut self, seeds: &[Multiaddr]) -> usize {
+        let mut ordered = seeds.to_vec();
+        sort_addrs_ipv6_first(&mut ordered);
         let mut ok = 0;
-        for addr in seeds {
+        for addr in &ordered {
             match self.reach(addr.clone()) {
                 Ok(()) => ok += 1,
                 Err(e) => tracing::debug!(%addr, "seed reach: {e}"),
@@ -429,7 +569,7 @@ impl HyphaeNode {
         }
         if ok > 0 {
             let _ = self.kad_bootstrap();
-            self.listen_via_relays(seeds);
+            self.listen_via_relays(&ordered);
         }
         ok
     }
@@ -643,6 +783,22 @@ impl HyphaeNode {
                 )) => {
                     tracing::info!(relay = %relay_peer_id, "reserva relay aceita");
                 }
+                SwarmEvent::Behaviour(SubstrateBehaviourEvent::Relay(
+                    relay::Event::CircuitReqAccepted {
+                        src_peer_id,
+                        dst_peer_id,
+                    },
+                )) => {
+                    tracing::info!(
+                        src = %src_peer_id,
+                        dst = %dst_peer_id,
+                        "sporocarp: circuito relay aceito"
+                    );
+                    return Some(HyphaEvent::SporocarpCircuit {
+                        src: src_peer_id,
+                        dst: dst_peer_id,
+                    });
+                }
                 SwarmEvent::Behaviour(SubstrateBehaviourEvent::Gossipsub(
                     gossipsub::Event::Message { message, .. },
                 )) => {
@@ -731,6 +887,11 @@ fn strip_p2p(mut addr: Multiaddr) -> Multiaddr {
         let _ = addr.pop();
     }
     addr
+}
+
+fn is_ip6(addr: &Multiaddr) -> bool {
+    addr.iter()
+        .any(|p| matches!(p, Protocol::Ip6(_)))
 }
 
 #[cfg(test)]
@@ -854,5 +1015,43 @@ mod tests {
             .get(&key)
             .expect("record local");
         assert_eq!(got.value, b"mycelium");
+    }
+
+    #[test]
+    fn ipv6_first_sort_order() {
+        let mut addrs = vec![
+            "/ip4/203.0.113.1/tcp/4001".parse().unwrap(),
+            "/ip6/2001:db8::1/tcp/4001".parse().unwrap(),
+            "/ip4/127.0.0.1/tcp/4001".parse().unwrap(),
+        ];
+        sort_addrs_ipv6_first(&mut addrs);
+        assert!(addrs[0].to_string().starts_with("/ip6/2001:db8"));
+        assert!(addrs[1].to_string().starts_with("/ip4/203"));
+    }
+
+    #[tokio::test]
+    async fn relay_server_germinates() {
+        let mut node = HyphaeNode::germinate_with(HyphaeConfig {
+            seed: Some([9u8; 32]),
+            listen: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+            enable_relay_server: true,
+            enable_relay_client: false,
+            enable_mdns: false,
+            membrane: Membrane::Esporocarp,
+            ..Default::default()
+        })
+        .unwrap();
+        let rooted = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(HyphaEvent::Rooted { address }) = node.pulse().await {
+                    if address.to_string().contains("/tcp/") {
+                        return true;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("relay enraíza");
+        assert!(rooted);
     }
 }

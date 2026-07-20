@@ -7,7 +7,7 @@
 //! é detectado.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use mycelium_core::NodeId;
+use mycelium_core::{Membrane, NodeId};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -56,8 +56,18 @@ impl Gland {
         NodeId::derive(self.verifying_key().as_bytes())
     }
 
-    /// Secreta um pacote de feromônio assinado.
+    /// Secreta um pacote de feromônio assinado (membrana = folha por default).
     pub fn secrete(&self, trail: Trail, ttl: Duration) -> Result<Pheromone, PheromoneError> {
+        self.secrete_membrane(trail, ttl, Membrane::Folha)
+    }
+
+    /// Secreta feromônio com membrana fisiológica explícita.
+    pub fn secrete_membrane(
+        &self,
+        trail: Trail,
+        ttl: Duration,
+        membrane: Membrane,
+    ) -> Result<Pheromone, PheromoneError> {
         let body = PheromoneBody {
             identity: self.verifying_key().to_bytes(),
             scent: trail.scent(),
@@ -65,6 +75,7 @@ impl Gland {
             emitted_at_secs: now_secs(),
             decay_secs: ttl.as_secs(),
             alarm: None,
+            membrane,
         };
         let payload = serde_json::to_vec(&body)?;
         let signature = self.signing_key.sign(&payload);
@@ -143,6 +154,9 @@ pub struct PheromoneBody {
     pub decay_secs: u64,
     /// Sinal de perigo opcional.
     pub alarm: Option<Alarm>,
+    /// Papel fisiológico na rede (folha por default em pacotes legados).
+    #[serde(default)]
+    pub membrane: Membrane,
 }
 
 /// Pacote de feromônio assinado, pronto para ser "cheirado" por vizinhos.
@@ -225,13 +239,39 @@ mod tests {
     }
 
     #[test]
+    fn secreted_pheromone_carries_membrane() {
+        let gland = Gland::germinate();
+        let p = gland
+            .secrete_membrane(
+                Trail::default(),
+                Duration::from_secs(3600),
+                Membrane::Floresta,
+            )
+            .unwrap();
+        assert_eq!(p.body.membrane, Membrane::Floresta);
+        assert_eq!(p.sniff().unwrap(), 0.42);
+    }
+
+    #[test]
+    fn legacy_json_defaults_membrane_to_folha() {
+        let gland = Gland::germinate();
+        let p = gland
+            .secrete(Trail::default(), Duration::from_secs(3600))
+            .unwrap();
+        assert_eq!(p.body.membrane, Membrane::Folha);
+        let mut v: serde_json::Value = serde_json::to_value(&p.body).unwrap();
+        v.as_object_mut().unwrap().remove("membrane");
+        let body: PheromoneBody = serde_json::from_value(v).unwrap();
+        assert_eq!(body.membrane, Membrane::Folha);
+    }
+
+    #[test]
     fn evaporated_pheromone_is_rejected() {
         let gland = Gland::germinate();
         let mut p = gland
             .secrete(Trail::default(), Duration::from_secs(0))
             .unwrap();
         p.body.emitted_at_secs = 0;
-        // assinatura fica inválida ao mexer no corpo; re-assina para testar decay
         let payload = serde_json::to_vec(&p.body).unwrap();
         let sig = gland.signing_key_for_tests().sign(&payload);
         p.signature = sig.to_bytes().to_vec();

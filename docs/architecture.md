@@ -5,7 +5,7 @@
 O crate `mycelium-node` mantém o nó vivo:
 
 1. **Despertar** — carrega `gland.seed`, ledger, Spore Bank, Field e métricas de hifas
-2. **Hifas** — libp2p (QUIC + TCP + DNS/`dnsaddr`), mDNS local, seed book (HTTP + arquivo), Kademlia bootstrap, gossip (`pheromones` + `lattice`)
+2. **Hifas** — libp2p (QUIC + TCP + DNS/`dnsaddr` + circuit relay), mDNS local, seed book (DNS TXT + HTTP + arquivo), Política de Membrana (IPv6-first / sem UPnP·DCUtR), Kademlia bootstrap, gossip (`pheromones` + `lattice`)
 3. **Spore Bank** — Plots em disco; anúncio/recuperação via Kademlia (`spore/<ContentId>`)
 4. **Vacuum Chamber** — processo filho (`mycelium chamber-serve`) com bundle OCI-lite; isolamento `Auto` → bubblewrap se disponível, senão processo simples
 5. **Singularity Event Horizon** — reverse proxy HTTP (`:7474`) que roteia `/{ion}/` à Chamber
@@ -82,6 +82,6 @@ Não há cobrança em dinheiro fiat: quem alimenta a rede é alimentado pela red
 
 ## Estado da implementação
 
-Protótipo funcional: hifas com mDNS (opt-out `--no-mdns`) + seed book + DHT + circuit relay v2 (`--relay` / client `/p2p-circuit`); Vacuum com layers em disco/DHT (`layer/`) + gossip `LayerNeed`/`LayerOffer`; Inertia local e remoto (`VectorOffer` → `MomentumReport`); Deploy só no origin do Signal (`mycelium deploy` one-shot); Isotope anel 4 + `AtomSync` + **Decay** (`DecayQuery`/`DecayReply`); Singularity HTTP + `/console` + rate-limit; Envelope `v:1` (`docs/protocol.md`); control socket com `MYCELIUM_CONTROL_TOKEN` (obrigatório em `--relay`); seed com `--announce-ip` + `scripts/install-seed.sh`. Catálogo: `seeds/mainnet.txt`. CI: unitários + demos de integração.
+Protótipo funcional: hifas IPv6-first + **Política de Membrana** (floresta/raiz/folha/esporocarp) + mDNS (opt-out `--no-mdns`) + seed book (DNS TXT com flags + HTTP) + DHT + circuit relay v2; **`--sporocarp`** (relay doméstico + crédito ATP, sem UPnP/DCUtR); Vacuum com layers em disco/DHT (`layer/`) + gossip `LayerNeed`/`LayerOffer`; Inertia local e remoto (`VectorOffer` → `MomentumReport`); Deploy só no origin do Signal (`mycelium deploy` one-shot); Isotope anel 4 + `AtomSync` + **Decay** (`DecayQuery`/`DecayReply`); Singularity HTTP + `/console` + rate-limit; Envelope `v:1` (`docs/protocol.md`); control socket com `MYCELIUM_CONTROL_TOKEN` (obrigatório em `--relay`/`--sporocarp`). Seed doméstico = sporocarp (sem VPS); ver `docs/rizomorphs.md` e `docs/ops-seed.md`. Catálogo: DNS TXT + `seeds/mainnet.txt`. CI: unitários.
 
-**Ainda stub / superficial:** Entropy Shades no daemon, Void placement compartilhado, Sporocarp CDN, Growth Zones, Prometheus `/metrics`.
+**Ainda stub / superficial:** Entropy Shades no daemon, Void placement compartilhado, Sporocarp CDN completo, Growth Zones, Prometheus `/metrics`.

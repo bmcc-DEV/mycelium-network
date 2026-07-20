@@ -75,6 +75,7 @@ libp2p = { version = "0.56", features = [
     "dns",
     "relay",
 ] }
+hickory-resolver = "0.24"
 
 [profile.release]
 lto = "thin"

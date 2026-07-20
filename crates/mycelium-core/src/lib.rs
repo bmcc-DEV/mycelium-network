@@ -247,6 +247,123 @@ pub enum Vitality {
     Decomposed,
 }
 
+/// Política de Membrana: papel fisiológico do nó na rede.
+///
+/// - **Floresta** — IPv6 global, hifa direta
+/// - **Raiz** — IPv4 com port-forward explícito (`--announce-ip`)
+/// - **Folha** — NAT / outbound-only; nunca aceita inbound público
+/// - **Esporocarp** — borda com relay (ATP)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Membrane {
+    Floresta,
+    Raiz,
+    #[default]
+    Folha,
+    Esporocarp,
+}
+
+impl Membrane {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Membrane::Floresta => "floresta",
+            Membrane::Raiz => "raiz",
+            Membrane::Folha => "folha",
+            Membrane::Esporocarp => "esporocarp",
+        }
+    }
+
+    /// Sufixo Spore Bank TXT (`/floresta`, …).
+    pub fn seed_suffix(self) -> &'static str {
+        match self {
+            Membrane::Floresta => "/floresta",
+            Membrane::Raiz => "/raiz",
+            Membrane::Folha => "/folha",
+            Membrane::Esporocarp => "/esporocarp",
+        }
+    }
+}
+
+impl fmt::Display for Membrane {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Membrane {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "floresta" => Ok(Membrane::Floresta),
+            "raiz" => Ok(Membrane::Raiz),
+            "folha" => Ok(Membrane::Folha),
+            "esporocarp" | "sporocarp" => Ok(Membrane::Esporocarp),
+            other => Err(format!(
+                "membrana desconhecida '{other}' (floresta|raiz|folha|esporocarp)"
+            )),
+        }
+    }
+}
+
+/// Diagnóstico sem probe externo (sem STUN): declarações + IPv6 global local.
+pub fn diagnose_membrane(
+    has_global_ip6: bool,
+    announce_ip: Option<&str>,
+    force_sporocarp: bool,
+    force: Option<Membrane>,
+) -> Membrane {
+    if let Some(m) = force {
+        return m;
+    }
+    if force_sporocarp {
+        return Membrane::Esporocarp;
+    }
+    if has_global_ip6 {
+        return Membrane::Floresta;
+    }
+    if announce_ip.map(|s| !s.trim().is_empty()).unwrap_or(false) {
+        return Membrane::Raiz;
+    }
+    Membrane::Folha
+}
+
+/// Detecta IPv6 global unicast nas interfaces (Linux `/proc/net/if_inet6`).
+pub fn detect_global_ipv6() -> bool {
+    let Ok(text) = std::fs::read_to_string("/proc/net/if_inet6") else {
+        return false;
+    };
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(addr_hex) = parts.next() else { continue };
+        // skip ifindex, prefix
+        let _ = parts.next();
+        let _ = parts.next();
+        let Some(scope_hex) = parts.next() else { continue };
+        let scope = u8::from_str_radix(scope_hex, 16).unwrap_or(0xff);
+        // 0x00 = RT_SCOPE_UNIVERSE (global)
+        if scope != 0 {
+            continue;
+        }
+        if addr_hex.len() != 32 {
+            continue;
+        }
+        // ULA fc00::/7 → primeiro nibble f, segundo c-d
+        let Ok(b0) = u8::from_str_radix(&addr_hex[0..2], 16) else {
+            continue;
+        };
+        if (b0 & 0xfe) == 0xfc {
+            continue;
+        }
+        // ::1 / unspecified já têm scope ≠ 0 tipicamente; rejeita zeros
+        if addr_hex.chars().all(|c| c == '0') {
+            continue;
+        }
+        return true;
+    }
+    false
+}
+
 /// Todo serviço do The Lattice é um corpo de frutificação: o cogumelo
 /// visível que emerge do substrato invisível.
 pub trait FruitingBody {
@@ -286,6 +403,26 @@ mod tests {
         assert_eq!(r.ram_mib, 16384);
         assert_eq!(r.storage_gib, 1024);
         assert_eq!(r.bandwidth_mbps, 1000);
+    }
+
+    #[test]
+    fn diagnose_membrane_matrix() {
+        assert_eq!(
+            diagnose_membrane(false, None, true, None),
+            Membrane::Esporocarp
+        );
+        assert_eq!(
+            diagnose_membrane(true, Some("1.2.3.4"), false, None),
+            Membrane::Floresta
+        );
+        assert_eq!(
+            diagnose_membrane(false, Some("203.0.113.1"), false, None),
+            Membrane::Raiz
+        );
+        assert_eq!(
+            diagnose_membrane(false, None, false, None),
+            Membrane::Folha
+        );
     }
 
     #[test]
