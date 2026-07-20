@@ -4,10 +4,15 @@
 //! deve incluir `"auth": "<token>"` no JSON.
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
+
+/// Porta TCP de controlo (fallback Android / sem Unix socket).
+fn tcp_port_path(sock_path: &Path) -> PathBuf {
+    sock_path.with_extension("tcp")
+}
 
 /// Pedidos da CLI ao daemon.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -108,7 +113,7 @@ pub struct ControlMsg {
     pub reply: oneshot::Sender<Response>,
 }
 
-/// Serve o socket Unix; encaminha pedidos pelo canal.
+/// Serve o plano de controlo (Unix socket, ou TCP 127.0.0.1 se Unix for bloqueado — Android shell).
 pub async fn serve(
     sock_path: impl AsRef<Path>,
     tx: mpsc::Sender<ControlMsg>,
@@ -116,25 +121,57 @@ pub async fn serve(
 ) -> Result<(), String> {
     let path = sock_path.as_ref();
     let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(tcp_port_path(path));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let listener = UnixListener::bind(path).map_err(|e| e.to_string())?;
-    if required_token.is_some() {
-        tracing::info!(path = %path.display(), "control socket listening (auth obrigatória)");
-    } else {
-        tracing::info!(path = %path.display(), "control socket listening");
-    }
 
-    loop {
-        let (stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
-        let tx = tx.clone();
-        let token = required_token.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handle_client(stream, tx, token).await {
-                tracing::warn!("control client error: {e}");
+    match UnixListener::bind(path) {
+        Ok(listener) => {
+            if required_token.is_some() {
+                tracing::info!(path = %path.display(), "control socket listening (auth obrigatória)");
+            } else {
+                tracing::info!(path = %path.display(), "control socket listening");
             }
-        });
+            loop {
+                let (stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
+                let tx = tx.clone();
+                let token = required_token.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = handle_client_unix(stream, tx, token).await {
+                        tracing::warn!("control client error: {e}");
+                    }
+                });
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                err = %e,
+                "Unix control socket indisponível — fallback TCP 127.0.0.1"
+            );
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .map_err(|e| e.to_string())?;
+            let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+            let port_file = tcp_port_path(path);
+            std::fs::write(&port_file, format!("{port}\n")).map_err(|e| e.to_string())?;
+            if required_token.is_some() {
+                tracing::info!(%port, "control TCP listening (auth obrigatória)");
+            } else {
+                tracing::info!(%port, "control TCP listening");
+            }
+            loop {
+                let (stream, _) = listener.accept().await.map_err(|e| e.to_string())?;
+                let tx = tx.clone();
+                let token = required_token.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = handle_client_tcp(stream, tx, token).await {
+                        tracing::warn!("control client error: {e}");
+                    }
+                });
+            }
+        }
     }
 }
 
@@ -156,12 +193,47 @@ fn parse_request_line(line: &str, required: Option<&str>) -> Result<Request, Str
     serde_json::from_value(value).map_err(|e| format!("pedido inválido: {e}"))
 }
 
-async fn handle_client(
+async fn write_response<W: AsyncWriteExt + Unpin>(
+    writer: &mut W,
+    resp: &Response,
+) -> Result<(), String> {
+    let mut line = serde_json::to_string(resp).map_err(|e| e.to_string())?;
+    line.push('\n');
+    writer
+        .write_all(line.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn handle_client_unix(
     stream: UnixStream,
     tx: mpsc::Sender<ControlMsg>,
     required_token: Option<String>,
 ) -> Result<(), String> {
     let (reader, mut writer) = stream.into_split();
+    handle_client_lines(reader, &mut writer, tx, required_token).await
+}
+
+async fn handle_client_tcp(
+    stream: TcpStream,
+    tx: mpsc::Sender<ControlMsg>,
+    required_token: Option<String>,
+) -> Result<(), String> {
+    let (reader, mut writer) = stream.into_split();
+    handle_client_lines(reader, &mut writer, tx, required_token).await
+}
+
+async fn handle_client_lines<R, W>(
+    reader: R,
+    writer: &mut W,
+    tx: mpsc::Sender<ControlMsg>,
+    required_token: Option<String>,
+) -> Result<(), String>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
     let mut lines = BufReader::new(reader).lines();
     while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         if line.trim().is_empty() {
@@ -170,7 +242,7 @@ async fn handle_client(
         let request = match parse_request_line(&line, required_token.as_deref()) {
             Ok(r) => r,
             Err(message) => {
-                write_response(&mut writer, &Response::Err { message }).await?;
+                write_response(writer, &Response::Err { message }).await?;
                 continue;
             }
         };
@@ -186,41 +258,20 @@ async fn handle_client(
             let resp = Response::Err {
                 message: "daemon encerrado".into(),
             };
-            write_response(&mut writer, &resp).await?;
+            write_response(writer, &resp).await?;
             break;
         }
         let resp = reply_rx.await.unwrap_or(Response::Err {
             message: "sem resposta do organismo".into(),
         });
-        write_response(&mut writer, &resp).await?;
+        write_response(writer, &resp).await?;
     }
-    Ok(())
-}
-
-async fn write_response(
-    writer: &mut tokio::net::unix::OwnedWriteHalf,
-    resp: &Response,
-) -> Result<(), String> {
-    let mut line = serde_json::to_string(resp).map_err(|e| e.to_string())?;
-    line.push('\n');
-    writer
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// Cliente: envia um pedido ao daemon e devolve a resposta.
 pub async fn call(sock_path: impl AsRef<Path>, request: Request) -> Result<Response, String> {
-    let stream = UnixStream::connect(sock_path.as_ref())
-        .await
-        .map_err(|e| {
-            format!(
-                "daemon não está rodando ({}): {e}",
-                sock_path.as_ref().display()
-            )
-        })?;
-    let (reader, mut writer) = stream.into_split();
+    let path = sock_path.as_ref();
     let mut value = serde_json::to_value(&request).map_err(|e| e.to_string())?;
     if let Ok(token) = std::env::var("MYCELIUM_CONTROL_TOKEN") {
         if !token.is_empty() {
@@ -231,6 +282,34 @@ pub async fn call(sock_path: impl AsRef<Path>, request: Request) -> Result<Respo
     }
     let mut line = serde_json::to_string(&value).map_err(|e| e.to_string())?;
     line.push('\n');
+
+    if let Ok(stream) = UnixStream::connect(path).await {
+        return exchange_line(stream, &line).await;
+    }
+
+    let port_file = tcp_port_path(path);
+    let port: u16 = std::fs::read_to_string(&port_file)
+        .map_err(|e| {
+            format!(
+                "daemon não está rodando ({} / {}): {e}",
+                path.display(),
+                port_file.display()
+            )
+        })?
+        .trim()
+        .parse()
+        .map_err(|e| format!("porta de controlo inválida: {e}"))?;
+    let stream = TcpStream::connect(("127.0.0.1", port))
+        .await
+        .map_err(|e| format!("daemon não está rodando (127.0.0.1:{port}): {e}"))?;
+    exchange_line(stream, &line).await
+}
+
+async fn exchange_line<S>(stream: S, line: &str) -> Result<Response, String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let (reader, mut writer) = tokio::io::split(stream);
     writer
         .write_all(line.as_bytes())
         .await

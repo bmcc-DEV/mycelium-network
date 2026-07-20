@@ -261,6 +261,7 @@ impl HyphaeNode {
 
         let enable_mdns = config.enable_mdns;
         let enable_relay_server = config.enable_relay_server;
+        // Evita `with_dns()` → lê `/etc/resolv.conf` (ENOENT no Android).
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_tcp(
@@ -270,8 +271,10 @@ impl HyphaeNode {
             )
             .map_err(|e| HyphaeError::Germination(e.to_string()))?
             .with_quic()
-            .with_dns()
-            .map_err(|e| HyphaeError::Germination(e.to_string()))?
+            .with_dns_config(
+                libp2p::dns::ResolverConfig::cloudflare(),
+                libp2p::dns::ResolverOpts::default(),
+            )
             .with_relay_client(noise::Config::new, yamux::Config::default)
             .map_err(|e| HyphaeError::Germination(e.to_string()))?
             .with_behaviour(move |key, relay_client| {

@@ -464,7 +464,8 @@ async fn daemon(
 
 async fn status(home: &PathBuf) -> Result<(), String> {
     let sock = home.join("mycelium.sock");
-    if sock.exists() {
+    // Android/shell: Unix socket pode falhar; `call` cai para `mycelium.tcp`.
+    if sock.exists() || sock.with_extension("tcp").exists() {
         return print_response(call(&sock, Request::Status).await?);
     }
     let store = NodeStore::open(home).map_err(|e| e.to_string())?;
