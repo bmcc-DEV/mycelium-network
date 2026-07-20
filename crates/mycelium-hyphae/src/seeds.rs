@@ -144,38 +144,56 @@ impl SeedBook {
         Ok(())
     }
 
-    /// Baixa um catálogo HTTP(S) de seeds (bloqueante — chamar em task).
+    /// Baixa um catálogo HTTP(S) de seeds.
+    /// Roda em thread OS própria (reqwest blocking não pode nestar no Tokio do daemon).
     pub fn fetch_url(&mut self, url: &str) -> Result<usize, HyphaeError> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .user_agent("mycelium-seedbook/0.1")
-            .build()
-            .map_err(|e| HyphaeError::Addr(e.to_string()))?;
-        let text = client
-            .get(url)
-            .send()
-            .and_then(|r| r.error_for_status()?.text())
-            .map_err(|e| HyphaeError::Addr(format!("bootstrap url {url}: {e}")))?;
+        let url = url.to_string();
+        let text = std::thread::spawn(move || -> Result<String, HyphaeError> {
+            let client = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .user_agent("mycelium-seedbook/0.1")
+                .build()
+                .map_err(|e| HyphaeError::Addr(e.to_string()))?;
+            client
+                .get(&url)
+                .send()
+                .and_then(|r| r.error_for_status()?.text())
+                .map_err(|e| HyphaeError::Addr(format!("bootstrap url {url}: {e}")))
+        })
+        .join()
+        .map_err(|_| HyphaeError::Addr("fetch_url thread panicked".into()))??;
         let before = self.seeds.len();
         self.parse_text(&text)?;
         Ok(self.seeds.len() - before)
     }
 
     /// Resolve registros TXT e importa multiaddrs (Spore Bank DNS).
+    /// Hickory `Resolver::new` sobe um runtime Tokio — não pode correr no runtime do daemon.
     pub fn fetch_dns_txt(&mut self, name: &str) -> Result<usize, HyphaeError> {
-        let resolver = Resolver::new(ResolverConfig::default(), ResolverOpts::default())
-            .map_err(|e| HyphaeError::Addr(format!("dns resolver: {e}")))?;
-        let response = resolver
-            .txt_lookup(name)
-            .map_err(|e| HyphaeError::Addr(format!("dns TXT {name}: {e}")))?;
+        let name = name.to_string();
+        let blobs = std::thread::spawn(move || -> Result<Vec<String>, HyphaeError> {
+            let resolver = Resolver::new(ResolverConfig::default(), ResolverOpts::default())
+                .map_err(|e| HyphaeError::Addr(format!("dns resolver: {e}")))?;
+            let response = resolver
+                .txt_lookup(name.as_str())
+                .map_err(|e| HyphaeError::Addr(format!("dns TXT {name}: {e}")))?;
+            let mut out = Vec::new();
+            for record in response.iter() {
+                let text: String = record
+                    .txt_data()
+                    .iter()
+                    .map(|b| String::from_utf8_lossy(b).into_owned())
+                    .collect::<Vec<_>>()
+                    .join("");
+                out.push(text);
+            }
+            Ok(out)
+        })
+        .join()
+        .map_err(|_| HyphaeError::Addr("fetch_dns_txt thread panicked".into()))??;
+
         let before = self.seeds.len();
-        for record in response.iter() {
-            let text: String = record
-                .txt_data()
-                .iter()
-                .map(|b| String::from_utf8_lossy(b).into_owned())
-                .collect::<Vec<_>>()
-                .join("");
+        for text in blobs {
             for part in text.split(|c: char| c == '\n' || c == ';' || c == ',') {
                 let _ = self.add(part.trim());
             }
@@ -184,33 +202,41 @@ impl SeedBook {
     }
 
     /// Publica uma multiaddr no DuckDNS TXT (`DUCKDNS_TOKEN` + domain).
+    /// Também em thread OS (chamável via spawn_blocking ou sync).
     pub fn publish_duckdns_txt(domain: &str, token: &str, multiaddr: &str) -> Result<(), HyphaeError> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .user_agent("mycelium-sporocarp/0.1")
-            .build()
-            .map_err(|e| HyphaeError::Addr(e.to_string()))?;
-        let domain = domain
-            .trim()
-            .trim_end_matches(".duckdns.org")
-            .trim_end_matches('.');
-        let body = client
-            .get("https://www.duckdns.org/update")
-            .query(&[
-                ("domains", domain),
-                ("token", token),
-                ("txt", multiaddr),
-                ("verbose", "true"),
-            ])
-            .send()
-            .and_then(|r| r.error_for_status()?.text())
-            .map_err(|e| HyphaeError::Addr(format!("duckdns: {e}")))?;
-        if body.to_ascii_lowercase().contains("ok") {
-            tracing::info!(%domain, "DuckDNS TXT atualizado (spore bank)");
-            Ok(())
-        } else {
-            Err(HyphaeError::Addr(format!("duckdns resposta: {body}")))
-        }
+        let domain = domain.to_string();
+        let token = token.to_string();
+        let multiaddr = multiaddr.to_string();
+        std::thread::spawn(move || -> Result<(), HyphaeError> {
+            let client = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .user_agent("mycelium-sporocarp/0.1")
+                .build()
+                .map_err(|e| HyphaeError::Addr(e.to_string()))?;
+            let domain = domain
+                .trim()
+                .trim_end_matches(".duckdns.org")
+                .trim_end_matches('.');
+            let body = client
+                .get("https://www.duckdns.org/update")
+                .query(&[
+                    ("domains", domain),
+                    ("token", token.as_str()),
+                    ("txt", multiaddr.as_str()),
+                    ("verbose", "true"),
+                ])
+                .send()
+                .and_then(|r| r.error_for_status()?.text())
+                .map_err(|e| HyphaeError::Addr(format!("duckdns: {e}")))?;
+            if body.to_ascii_lowercase().contains("ok") {
+                tracing::info!(%domain, "DuckDNS TXT atualizado (spore bank)");
+                Ok(())
+            } else {
+                Err(HyphaeError::Addr(format!("duckdns resposta: {body}")))
+            }
+        })
+        .join()
+        .map_err(|_| HyphaeError::Addr("publish_duckdns_txt thread panicked".into()))?
     }
 
     /// Multiaddrs para dial, filtrados/ordenados pela membrana local.
