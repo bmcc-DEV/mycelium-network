@@ -62,24 +62,28 @@ mod tests {
     #[test]
     fn diagnose_matrix() {
         assert_eq!(
-            diagnose_membrane(false, None, true, None),
+            diagnose_membrane(false, None, true, None, false),
             Membrane::Esporocarp
         );
         assert_eq!(
-            diagnose_membrane(true, Some("1.2.3.4"), false, None),
+            diagnose_membrane(true, Some("1.2.3.4"), false, None, false),
             Membrane::Floresta
         );
         assert_eq!(
-            diagnose_membrane(false, Some("1.2.3.4"), false, None),
+            diagnose_membrane(false, Some("1.2.3.4"), false, None, false),
             Membrane::Raiz
         );
         assert_eq!(
-            diagnose_membrane(false, None, false, None),
+            diagnose_membrane(false, None, false, None, false),
             Membrane::Folha
         );
         assert_eq!(
-            diagnose_membrane(true, None, false, Some(Membrane::Raiz)),
+            diagnose_membrane(true, None, false, Some(Membrane::Raiz), false),
             Membrane::Raiz
+        );
+        assert_eq!(
+            diagnose_membrane(true, None, false, None, true),
+            Membrane::Esporocarp
         );
     }
 

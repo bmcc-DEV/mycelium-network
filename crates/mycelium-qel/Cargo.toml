@@ -1,0 +1,18 @@
+[package]
+name = "mycelium-qel"
+description = "QEL: fragmentação Shamir multi-path para Plots Mycelium"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+blake3 = { workspace = true }
+mycelium-ghostid = { workspace = true }
+shamir_share = "0.2.1"
+
+[dev-dependencies]

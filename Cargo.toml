@@ -7,6 +7,13 @@ members = [
     "crates/mycelium-nutrients",
     "crates/mycelium-sporebank",
     "crates/mycelium-node",
+    "crates/mycelium-ghostid",
+    "crates/mycelium-qel",
+    "crates/mycelium-nostr",
+    "crates/mycelium-ipfs",
+    "crates/mycelium-tropical",
+    "crates/mycelium-pqc",
+    "crates/mycelium-distancebridge",
     "crates/giggs",
     "crates/thefield",
     "crates/inertia",
@@ -32,6 +39,13 @@ mycelium-pheromones = { path = "crates/mycelium-pheromones" }
 mycelium-nutrients = { path = "crates/mycelium-nutrients" }
 mycelium-sporebank = { path = "crates/mycelium-sporebank" }
 mycelium-node = { path = "crates/mycelium-node" }
+mycelium-ghostid = { path = "crates/mycelium-ghostid" }
+mycelium-qel = { path = "crates/mycelium-qel" }
+mycelium-nostr = { path = "crates/mycelium-nostr" }
+mycelium-ipfs = { path = "crates/mycelium-ipfs" }
+mycelium-tropical = { path = "crates/mycelium-tropical" }
+mycelium-pqc = { path = "crates/mycelium-pqc" }
+mycelium-distancebridge = { path = "crates/mycelium-distancebridge" }
 giggs = { path = "crates/giggs" }
 thefield = { path = "crates/thefield" }
 inertia = { path = "crates/inertia" }

@@ -23,3 +23,38 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 directories = "5"
 axum = { workspace = true }
+mycelium-sporebank = { workspace = true }
+hex = { workspace = true }
+blake3 = { workspace = true }
+
+[features]
+default = ["nostr"]
+webrtc = ["mycelium-node/webrtc", "mycelium-hyphae/webrtc"]
+nostr = [
+    "dep:mycelium-ghostid",
+    "dep:mycelium-qel",
+    "dep:mycelium-nostr",
+    "dep:mycelium-ipfs",
+    "dep:mycelium-distancebridge",
+    "mycelium-node/nostr",
+]
+
+[dependencies.mycelium-ghostid]
+workspace = true
+optional = true
+
+[dependencies.mycelium-qel]
+workspace = true
+optional = true
+
+[dependencies.mycelium-nostr]
+workspace = true
+optional = true
+
+[dependencies.mycelium-ipfs]
+workspace = true
+optional = true
+
+[dependencies.mycelium-distancebridge]
+workspace = true
+optional = true

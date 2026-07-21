@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Instala mycelium-seed como Volunteer Sporocarp (systemd 24/7, sem VPS).
-# Uso: sudo ./scripts/install-seed.sh [--announce-ip IP] [--announce-ip6 IP6]
+# Uso: sudo MYCELIUM_REACHABLE=1 ./scripts/install-seed.sh [--announce-ip IP] [--announce-ip6 IP6]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,7 +16,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$(id -u)" -ne 0 ]]; then
-  echo "rode como root: sudo $0" >&2
+  echo "rode como root: sudo MYCELIUM_REACHABLE=1 $0" >&2
+  exit 1
+fi
+
+if [[ "${MYCELIUM_REACHABLE:-}" != "1" && "${MYCELIUM_REACHABLE:-}" != "true" ]]; then
+  echo "ERRO: defina MYCELIUM_REACHABLE=1 só depois de ./scripts/verify-sporocarp.sh" >&2
+  echo "Docs: docs/volunteer-sporocarp.md" >&2
   exit 1
 fi
 
@@ -48,9 +54,10 @@ cat >/etc/mycelium/seed.env <<EOF
 MYCELIUM_HOME=/var/lib/mycelium-seed
 MYCELIUM_ANNOUNCE_IP=$ANNOUNCE_IP
 MYCELIUM_ANNOUNCE_IP6=$ANNOUNCE_IP6
+MYCELIUM_REACHABLE=1
 MYCELIUM_CONTROL_TOKEN=$TOKEN
 RUST_LOG=info
-# Opcional — Spore Bank DNS vivo:
+# Opcional — Spore Bank DNS vivo (não é VPS):
 # DUCKDNS_TOKEN=
 # DUCKDNS_DOMAIN=
 EOF
@@ -66,10 +73,11 @@ systemctl daemon-reload
 systemctl enable --now mycelium-seed
 
 echo
-echo "OK — mycelium-seed (sporocarp) ativo"
+echo "OK — mycelium-seed (sporocarp voluntário) ativo"
 echo "  announce v4 : ${ANNOUNCE_IP:-—}"
 echo "  announce v6 : ${ANNOUNCE_IP6:-—}"
 echo "  token       : /etc/mycelium/seed.env"
 echo "  status      : systemctl status mycelium-seed"
-echo "  docs        : docs/rizomorphs.md"
 echo "  export      : $ROOT/scripts/export-seed.sh /var/lib/mycelium-seed"
+echo "  verify      : $ROOT/scripts/verify-sporocarp.sh ${ANNOUNCE_IP:-HOST} 4001"
+echo "  docs        : docs/volunteer-sporocarp.md"

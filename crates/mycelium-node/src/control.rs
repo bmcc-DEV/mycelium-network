@@ -23,6 +23,15 @@ pub enum Request {
         message: String,
         path: String,
         content: String,
+        /// QEL k,n (ex. "3,7"). Requer feature `nostr`.
+        #[serde(default)]
+        qel: Option<String>,
+        #[serde(default)]
+        nostr: bool,
+        #[serde(default)]
+        ghost: bool,
+        #[serde(default)]
+        recipient: Option<String>,
     },
     Signal {
         plot: String,
@@ -35,6 +44,12 @@ pub enum Request {
     },
     Recall {
         plot: String,
+        #[serde(default)]
+        qel: bool,
+        #[serde(default)]
+        nostr: bool,
+        #[serde(default)]
+        qel_threshold: Option<u8>,
     },
     Bootstrap {
         addr: String,
@@ -105,6 +120,21 @@ pub struct StatusReport {
     /// Nome DNS TXT do Spore Bank em uso (se configurado).
     #[serde(default)]
     pub dns_seed: Option<String>,
+    /// Inbound WAN declarado alcançável (`MYCELIUM_REACHABLE` / `--assume-reachable`).
+    #[serde(default)]
+    pub wan_reachable: bool,
+    /// Este nó opera como circuit relay (esporocarp).
+    #[serde(default)]
+    pub is_relay: bool,
+    /// PeerId do relay activo (folha em circuito), se houver.
+    #[serde(default)]
+    pub active_relay: Option<String>,
+    /// Saúde do catálogo de relays mesh: healthy|degraded|none|self.
+    #[serde(default)]
+    pub relay_health: String,
+    /// Fase Physarum (exploratory|transport|dormant).
+    #[serde(default)]
+    pub physarum_phase: String,
 }
 
 /// Mensagem interna: pedido + canal de resposta.
@@ -269,15 +299,31 @@ where
     Ok(())
 }
 
+/// Resolve o token de controlo: env `MYCELIUM_CONTROL_TOKEN`, senão `{home}/control.token`.
+fn resolve_control_token(sock_path: &Path) -> Option<String> {
+    if let Ok(token) = std::env::var("MYCELIUM_CONTROL_TOKEN") {
+        let t = token.trim();
+        if !t.is_empty() {
+            return Some(t.to_string());
+        }
+    }
+    let token_file = sock_path
+        .parent()
+        .unwrap_or(sock_path)
+        .join("control.token");
+    std::fs::read_to_string(&token_file)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Cliente: envia um pedido ao daemon e devolve a resposta.
 pub async fn call(sock_path: impl AsRef<Path>, request: Request) -> Result<Response, String> {
     let path = sock_path.as_ref();
     let mut value = serde_json::to_value(&request).map_err(|e| e.to_string())?;
-    if let Ok(token) = std::env::var("MYCELIUM_CONTROL_TOKEN") {
-        if !token.is_empty() {
-            if let Some(obj) = value.as_object_mut() {
-                obj.insert("auth".into(), serde_json::Value::String(token));
-            }
+    if let Some(token) = resolve_control_token(path) {
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("auth".into(), serde_json::Value::String(token));
         }
     }
     let mut line = serde_json::to_string(&value).map_err(|e| e.to_string())?;

@@ -1,0 +1,11 @@
+Estou a validar uma rede P2P académica/laboratorial em Rust e preciso de um nó com IP público para servir de esporocarpo.
+
+Só precisa de abrir TCP/UDP 4001 numa máquina tua, sem expor serviços internos nem painel web.
+
+A identidade é ed25519/libp2p; o token de controlo fica só na máquina e o Horizon fica em localhost.
+
+Podes limitar banda, ver logs e desligar quando quiseres; o nó só participa como relay/bootstrap da rede.
+
+Enquanto não há voluntário, as folhas atrás de CGNAT já semeiam via Nostr (mailbox outbound) — o teu nó desbloqueia a mesh live (circuit relay NAT↔NAT), não o envio básico de plots.
+
+Ajuda-me a provar que folhas atrás de CGNAT/5G conseguem ligar sem cloud — é um favor técnico de 15 minutos.

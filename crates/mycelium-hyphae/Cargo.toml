@@ -16,3 +16,13 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 hickory-resolver = { workspace = true }
+hex = { workspace = true }
+blake3 = { workspace = true }
+libp2p-webrtc = { version = "0.9.0-alpha.1", optional = true, features = ["tokio"] }
+rand = { version = "0.8", optional = true }
+
+[features]
+default = []
+# Experimental: libp2p-webrtc 0.9 (webrtc-direct) sobre SwarmBuilder 0.56.
+webrtc = ["dep:libp2p-webrtc", "dep:rand"]
+

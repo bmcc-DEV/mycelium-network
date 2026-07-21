@@ -69,10 +69,10 @@ Giggs sow Plot → Spore Bank (disco + DHT) → gossip hifas
 | `sprout` | Inicializa identidade/recursos sem subir rede |
 | `daemon` | Organismo persistente (Ctrl-C ou `shutdown`) |
 | `status` | Estado vivo (socket) ou offline (disco) |
-| `sow` | Semeia Plot → Spore Bank + gossip/DHT |
+| `sow` | Semeia Plot → Spore Bank + gossip/DHT (`--qel`/`--nostr`/`--ghost`) |
 | `signal` | Emite Signal de pipeline no TheField |
 | `resonate` | Contribui para o quórum de um Signal |
-| `recall` | Lê Plot local; se ausente, consulta DHT |
+| `recall` | Lê Plot local; DHT ou `--qel --nostr` (relays) |
 | `bootstrap` | Dial explícito a um peer remoto |
 | `seeds list/add/fetch` | Seed book (bootstrap público) |
 | `isotope-put` / `isotope-get` | Estado Isotope (anel 4 + Decay pelas hifas) |
@@ -108,18 +108,43 @@ seeds.txt           seed book mesclado
 mycelium.sock       plano de controle do daemon
 ```
 
-## Publicar um seed
+## CGNAT / Vivo sem esporocarpo: Hybrid Theory (Nostr + QEL + ipfs local)
+
+Outbound `wss://` (porta 443) + blockstore local — funciona atrás de firewall residencial:
 
 ```bash
-./scripts/run-public-seed.sh          # sobe seed + imprime multiaddr
-# encaminhe TCP 4001 no NAT, depois:
-# edite seeds/mainnet.txt e push
-mycelium daemon --public-bootstrap --no-mdns
+mycelium sow --message "floresta" --hybrid
+# noutro home (cola o Qm… completo):
+mycelium --home /tmp/folha-b recall --plot Qm… --hybrid
+./scripts/hybrid-demo.sh
 ```
 
-Seed 24/7: `sudo ./scripts/install-seed.sh` (inclui `--relay`).  
-Docs: [docs/ops-seed.md](docs/ops-seed.md) · [docs/protocol.md](docs/protocol.md) · Console: `http://127.0.0.1:7474/console`  
-Auth do socket: `MYCELIUM_CONTROL_TOKEN=…`
+Docs: [docs/nostr-qel.md](docs/nostr-qel.md) · voluntário mesh: [docs/candidatos.md](docs/candidatos.md) · ET-COSMIC bridge: [docs/et-cosmic-bridge.md](docs/et-cosmic-bridge.md) · feature CLI `nostr` (default).
+
+## Fase tropical / PQC (port ET-COSMIC)
+
+```bash
+cargo test -p mycelium-tropical -p mycelium-pqc -p mycelium-distancebridge
+```
+
+Crates: `mycelium-tropical` (Max-Plus), `mycelium-pqc` (ML-KEM-1024), `mycelium-distancebridge` (seleção de transportes).
+
+## Publicar um esporocarpo voluntário (zero VPS)
+
+```bash
+# De telemóvel 5G:
+./scripts/probe-sporocarp.sh IP_PUBLICO 4001 telemovel-5g > proof.json
+
+# No peer voluntário (não no CPE Vivo):
+./scripts/verify-sporocarp.sh 4001 proof.json
+MYCELIUM_REACHABLE=1 ./scripts/run-public-seed.sh
+./scripts/export-seed.sh ~/.local/share/mycelium-seed >> seeds/mainnet.txt
+```
+
+24/7: `sudo MYCELIUM_REACHABLE=1 ./scripts/install-seed.sh`  
+Docs: [docs/engenharia-reversa-bloqueio.md](docs/engenharia-reversa-bloqueio.md) ·
+[docs/volunteer-sporocarp.md](docs/volunteer-sporocarp.md) ·
+[docs/rizomorphs.md](docs/rizomorphs.md)
 
 ## Desenvolvimento
 

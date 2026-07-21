@@ -3,20 +3,35 @@
 //! Hifas são os links vivos do micélio. Não são "conexões TCP": são
 //! relacionamentos que fortalecem com o uso e atrofiam sem ele.
 //!
-//! - **Transporte**: QUIC + TCP/Noise/Yamux + circuit relay v2
+//! - **Transporte**: QUIC + TCP/Noise/Yamux + circuit relay v2 (+ WebRTC opcional)
 //! - **Descoberta**: Kademlia DHT + mDNS + seed book (HTTP + DNS TXT)
-//! - **Gossip**: tópicos de feromônios e do Lattice
+//! - **Gossip**: tópicos de feromônios, Lattice e relay mesh
 //! - **Spore Bank**: put/get de records no DHT
-//! - **Membrana**: floresta/raiz/folha/esporocarp (sem STUN/UPnP/DCUtR)
+//! - **Membrana**: floresta/raiz/folha/esporocarp (sem UPnP; STUN só como infra pública documentada)
 
 mod membrane;
 mod seeds;
+mod relay_mesh;
+mod store_forward;
+mod webrtc_ice;
 
 pub use membrane::{default_listen_addrs, seed_dial_rank};
-pub use mycelium_core::{detect_global_ipv6, diagnose_membrane, Membrane};
+pub use mycelium_core::{
+    detect_global_ipv6, diagnose_membrane, env_assume_reachable, Membrane,
+};
 pub use seeds::{
     split_membrane_suffix, with_membrane_flag, SeedBook, DEFAULT_BOOTSTRAP_URL,
     DEFAULT_DNS_SEED_NAME,
+};
+pub use relay_mesh::{
+    RelayAdvertisement, RelayHealth, RelayMesh, RELAY_DHT_PREFIX, RELAY_MESH_TOPIC,
+};
+pub use store_forward::{
+    ack_key, is_expired, mailbox_key, mailbox_prefix, make_ack, make_message, MailboxAck,
+    MailboxContentType, MailboxMessage, MAILBOX_DHT_PREFIX,
+};
+pub use webrtc_ice::{
+    webrtc_available, webrtc_listen_addr, WebrtcIceConfig, PUBLIC_STUN_SERVERS,
 };
 
 use futures::StreamExt;
@@ -75,6 +90,12 @@ pub struct HyphaeConfig {
     pub enable_relay_client: bool,
     /// Membrana fisiológica (afeta listen default se `listen` vazio).
     pub membrane: Membrane,
+    /// Inbound WAN verificado — necessário para anunciar no relay mesh.
+    pub assume_reachable: bool,
+    /// Escuta webrtc-direct (requer build `--features webrtc`).
+    pub enable_webrtc: bool,
+    /// Porta UDP webrtc-direct (default 4002).
+    pub webrtc_port: u16,
 }
 
 impl Default for HyphaeConfig {
@@ -90,6 +111,9 @@ impl Default for HyphaeConfig {
             enable_relay_server: false,
             enable_relay_client: true,
             membrane: Membrane::Folha,
+            assume_reachable: false,
+            enable_webrtc: false,
+            webrtc_port: 4002,
         }
     }
 }
@@ -234,12 +258,14 @@ pub struct HyphaeNode {
     swarm: Swarm<SubstrateBehaviour>,
     pheromone_topic: gossipsub::IdentTopic,
     lattice_topic: gossipsub::IdentTopic,
+    relay_mesh_topic: gossipsub::IdentTopic,
     links: HashMap<PeerId, HyphaLink>,
     listen_addrs: Vec<Multiaddr>,
     metrics: HyphaMetrics,
     last_decay: Instant,
     announce_ip: Option<String>,
     announce_ip6: Option<String>,
+    relay_mesh: RelayMesh,
 }
 
 impl HyphaeNode {
@@ -261,8 +287,9 @@ impl HyphaeNode {
 
         let enable_mdns = config.enable_mdns;
         let enable_relay_server = config.enable_relay_server;
+        let enable_webrtc_listen = config.enable_webrtc && webrtc_available();
         // Evita `with_dns()` → lê `/etc/resolv.conf` (ENOENT no Android).
-        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
+        let builder = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_tcp(
                 tcp::Config::default(),
@@ -270,7 +297,23 @@ impl HyphaeNode {
                 yamux::Config::default,
             )
             .map_err(|e| HyphaeError::Germination(e.to_string()))?
-            .with_quic()
+            .with_quic();
+
+        // Feature `webrtc`: transporte sempre registado (tipo SwarmBuilder estável).
+        // Listen opcional via `enable_webrtc` / `--webrtc`.
+        #[cfg(feature = "webrtc")]
+        let builder = {
+            tracing::info!("{}", webrtc_ice::transport::note());
+            builder
+                .with_other_transport(|key| {
+                    webrtc_ice::transport::build(key.clone()).map_err(|e| {
+                        Box::<dyn std::error::Error + Send + Sync>::from(e)
+                    })
+                })
+                .map_err(|e| HyphaeError::Germination(e.to_string()))?
+        };
+
+        let mut swarm = builder
             .with_dns_config(
                 libp2p::dns::ResolverConfig::cloudflare(),
                 libp2p::dns::ResolverOpts::default(),
@@ -342,6 +385,7 @@ impl HyphaeNode {
 
         let pheromone_topic = gossipsub::IdentTopic::new(PHEROMONE_TOPIC);
         let lattice_topic = gossipsub::IdentTopic::new(LATTICE_TOPIC);
+        let relay_mesh_topic = gossipsub::IdentTopic::new(RELAY_MESH_TOPIC);
         swarm
             .behaviour_mut()
             .gossipsub
@@ -352,6 +396,11 @@ impl HyphaeNode {
             .gossipsub
             .subscribe(&lattice_topic)
             .map_err(|e| HyphaeError::Germination(e.to_string()))?;
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&relay_mesh_topic)
+            .map_err(|e| HyphaeError::Germination(e.to_string()))?;
 
         let listen = if config.listen.is_empty() {
             let has_v6 = config.announce_ip6.is_some() || detect_global_ipv6();
@@ -360,22 +409,45 @@ impl HyphaeNode {
             config.listen
         };
 
-        for addr in listen {
+        for addr in &listen {
             swarm
-                .listen_on(addr)
+                .listen_on(addr.clone())
                 .map_err(|e| HyphaeError::Germination(e.to_string()))?;
+        }
+
+        if enable_webrtc_listen {
+            let addr: Multiaddr = webrtc_listen_addr(config.webrtc_port)
+                .parse()
+                .map_err(|e| HyphaeError::Germination(format!("webrtc listen: {e}")))?;
+            match swarm.listen_on(addr.clone()) {
+                Ok(_) => tracing::info!(%addr, "escutando webrtc-direct"),
+                Err(e) => {
+                    if webrtc_available() {
+                        tracing::warn!(%addr, "webrtc listen falhou: {e}");
+                    } else {
+                        tracing::warn!(
+                            "webrtc pedido mas build sem feature `webrtc` — recompile com --features webrtc"
+                        );
+                    }
+                }
+            }
         }
 
         let mut node = Self {
             swarm,
             pheromone_topic,
             lattice_topic,
+            relay_mesh_topic,
             links: HashMap::new(),
             listen_addrs: Vec::new(),
             metrics: HyphaMetrics::default(),
             last_decay: Instant::now(),
             announce_ip: config.announce_ip.clone(),
             announce_ip6: config.announce_ip6.clone(),
+            relay_mesh: RelayMesh::new(
+                config.enable_relay_server,
+                config.assume_reachable,
+            ),
         };
 
         // Bootstrap: IPv6 primeiro (SeedBook já ordena; reordena por segurança).
@@ -411,6 +483,86 @@ impl HyphaeNode {
                 Err(e) => tracing::debug!(%circuit, "relay listen: {e}"),
             }
         }
+    }
+
+    pub fn active_relay_peer(&self) -> Option<PeerId> {
+        self.relay_mesh.active_relay()
+    }
+
+    pub fn relay_mesh_health_label(&self) -> String {
+        self.relay_mesh.health().label()
+    }
+
+    /// Publica anúncio de relay no gossip (+ DHT) se formos esporocarp alcançável.
+    pub fn publish_relay_mesh_ad(&mut self) -> Result<(), HyphaeError> {
+        self.relay_mesh
+            .set_public_addrs(self.dialable_addrs());
+        let Some(adv) = self.relay_mesh.advertisement(&self.peer_id()) else {
+            return Ok(());
+        };
+        let bytes = serde_json::to_vec(&adv).map_err(|e| HyphaeError::Gossip(e.to_string()))?;
+        self.publish(self.relay_mesh_topic.clone(), bytes)?;
+        let key = RelayMesh::dht_key_for(&self.peer_id());
+        let value = serde_json::to_vec(&adv).map_err(|e| HyphaeError::Dht(e.to_string()))?;
+        self.dht_put(key, value)?;
+        Ok(())
+    }
+
+    /// Folha: escuta circuit no melhor relay do catálogo mesh.
+    pub fn try_mesh_relay_circuits(&mut self) {
+        self.relay_mesh.prune();
+        let Some((peer, addr)) = self.relay_mesh.select_best() else {
+            return;
+        };
+        let mut with_p2p = addr.clone();
+        if !with_p2p.to_string().contains("/p2p/") {
+            with_p2p.push(Protocol::P2p(peer));
+        }
+        let circuit = RelayMesh::circuit_listen(&with_p2p);
+        match self.swarm.listen_on(circuit.clone()) {
+            Ok(_) => {
+                tracing::info!(%circuit, "mesh relay circuit");
+                self.relay_mesh.set_active_relay(Some(peer));
+            }
+            Err(e) => tracing::debug!(%circuit, "mesh relay listen: {e}"),
+        }
+        let _ = self.swarm.dial(with_p2p);
+    }
+
+    pub fn ingest_relay_ad(&mut self, adv: RelayAdvertisement) {
+        self.relay_mesh.ingest(adv);
+    }
+
+    /// Grava mensagem na mailbox DHT do destinatário.
+    pub fn mailbox_store(
+        &mut self,
+        to: PeerId,
+        payload: Vec<u8>,
+        content_type: MailboxContentType,
+    ) -> Result<String, HyphaeError> {
+        let msg = make_message(&self.peer_id(), &to, payload, content_type)
+            .map_err(HyphaeError::Dht)?;
+        let key = mailbox_key(&to, &msg.id_hex);
+        let value = serde_json::to_vec(&msg).map_err(|e| HyphaeError::Dht(e.to_string()))?;
+        self.dht_put(key, value)?;
+        Ok(msg.id_hex)
+    }
+
+    /// Publica ACK de mailbox.
+    pub fn mailbox_ack(&mut self, message_id_hex: &str) -> Result<(), HyphaeError> {
+        let ack = make_ack(&self.peer_id(), message_id_hex);
+        let key = ack_key(message_id_hex);
+        let value = serde_json::to_vec(&ack).map_err(|e| HyphaeError::Dht(e.to_string()))?;
+        self.dht_put(key, value)
+    }
+
+    /// Inicia get DHT da mailbox local (resultado via RecordFound).
+    pub fn mailbox_poll(&mut self) {
+        // Kademlia não tem prefix query nativa simples — get de chave sentinela
+        // documentada; clientes usam dht_get com id conhecido ou RecordFound
+        // de puts de peers. Aqui publicamos interesse via get do próprio prefixo.
+        let key = mailbox_key(&self.peer_id(), "_poll");
+        let _ = self.dht_get(key);
     }
 
     pub fn peer_id(&self) -> PeerId {
@@ -785,6 +937,7 @@ impl HyphaeNode {
                     relay::client::Event::ReservationReqAccepted { relay_peer_id, .. },
                 )) => {
                     tracing::info!(relay = %relay_peer_id, "reserva relay aceita");
+                    self.relay_mesh.set_active_relay(Some(relay_peer_id));
                 }
                 SwarmEvent::Behaviour(SubstrateBehaviourEvent::Relay(
                     relay::Event::CircuitReqAccepted {
@@ -817,6 +970,17 @@ impl HyphaeNode {
                             from: message.source,
                             data: message.data,
                         });
+                    }
+                    if topic == RELAY_MESH_TOPIC {
+                        if let Ok(adv) =
+                            serde_json::from_slice::<RelayAdvertisement>(&message.data)
+                        {
+                            self.relay_mesh.ingest(adv);
+                            if !self.relay_mesh.is_relay() {
+                                self.try_mesh_relay_circuits();
+                            }
+                        }
+                        continue;
                     }
                     return Some(HyphaEvent::PheromoneReceived {
                         from: message.source,

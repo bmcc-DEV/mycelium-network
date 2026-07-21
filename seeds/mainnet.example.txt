@@ -1,6 +1,13 @@
-# Exemplo — copie linhas reais para seeds/mainnet.txt após exportar um seed:
-#   mycelium daemon --listen /ip4/0.0.0.0/tcp/4001 --no-mdns
+# Exemplo — Volunteer Sporocarp (cole linhas reais após verify + export)
+#
+#   ./scripts/verify-sporocarp.sh IP_PUBLICO 4001
+#   MYCELIUM_REACHABLE=1 ./scripts/run-public-seed.sh
 #   ./scripts/export-seed.sh "$MYCELIUM_HOME" >> seeds/mainnet.txt
 #
-# /dnsaddr/bootstrap.mycelium.network
-# /ip4/203.0.113.10/tcp/4001/p2p/12D3KooWExamplePeerIdReplaceMe0000000000000000000
+# Formato (folhas priorizam /esporocarp):
+# /ip4/203.0.113.10/tcp/4001/p2p/12D3KooW…/esporocarp
+# /ip4/203.0.113.10/udp/4001/quic-v1/p2p/12D3KooW…/esporocarp
+# /ip6/2001:db8::1/tcp/4001/p2p/12D3KooW…/esporocarp
+# /dns4/amigo-mycelium.duckdns.org/tcp/4001/p2p/12D3KooW…/esporocarp
+#
+# NÃO anuncies IPs residenciais Vivo/CGNAT sem verify externo positivo.

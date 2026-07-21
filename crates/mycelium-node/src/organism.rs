@@ -8,14 +8,16 @@ use inertia::{Flywheel, Momentum, Thrust, Vector};
 use isotope::{Atom, Nucleus, DEFAULT_RING_SIZE};
 use mycelium_core::{ContentId, Membrane, NodeId, Nutrient, Resources};
 use mycelium_hyphae::{
-    detect_global_ipv6, diagnose_membrane, with_membrane_flag, HyphaEvent, HyphaeConfig, HyphaeNode,
-    SeedBook, DEFAULT_DNS_SEED_NAME,
+    detect_global_ipv6, diagnose_membrane, env_assume_reachable, with_membrane_flag, HyphaEvent,
+    HyphaeConfig, HyphaeNode, MailboxMessage, RelayAdvertisement, SeedBook, DEFAULT_DNS_SEED_NAME,
+    MAILBOX_DHT_PREFIX, RELAY_DHT_PREFIX,
 };
 use mycelium_nutrients::Ledger;
 use mycelium_pheromones::{Gland, Trail};
 use mycelium_sporebank::{
     content_id_from_layer_dht_key, dht_key, layer_dht_key, SporeBank,
 };
+use mycelium_tropical::{MyceliumPhase, PhysarumNetwork};
 use plasma::{Cloud, Ion};
 use singularity::{serve_horizon, EventHorizon, HorizonHandle, HorizonTable, Orbit};
 use std::collections::{HashMap, HashSet};
@@ -65,6 +67,11 @@ pub struct OrganismConfig {
     pub sporocarp: bool,
     /// Override explícito da membrana (`--membrane`).
     pub membrane: Option<Membrane>,
+    /// Inbound TCP/QUIC verificado (`--assume-reachable` / `MYCELIUM_REACHABLE`).
+    pub assume_reachable: bool,
+    /// Escuta webrtc-direct (build com `--features webrtc`).
+    pub enable_webrtc: bool,
+    pub webrtc_port: u16,
 }
 
 pub struct Organism {
@@ -93,6 +100,11 @@ pub struct Organism {
     sporocarp: bool,
     membrane: Membrane,
     dns_seed: Option<String>,
+    /// Operador afirmou inbound alcançável (WAN relayável).
+    assume_reachable: bool,
+    /// Rede Physarum (tick periódico no loop RSA leve).
+    physarum: PhysarumNetwork,
+    physarum_phase: MyceliumPhase,
 }
 
 impl Organism {
@@ -152,12 +164,21 @@ impl Organism {
             .announce_ip6
             .or_else(|| std::env::var("MYCELIUM_ANNOUNCE_IP6").ok());
         let has_global_ip6 = announce_ip6.is_some() || detect_global_ipv6();
+        let assume_reachable = config.assume_reachable || env_assume_reachable();
         let membrane = diagnose_membrane(
             has_global_ip6,
             announce_ip.as_deref(),
             config.sporocarp,
             config.membrane,
+            assume_reachable,
         );
+        if matches!(membrane, Membrane::Esporocarp) && !assume_reachable && config.sporocarp {
+            tracing::warn!(
+                "esporocarp sem MYCELIUM_REACHABLE/--assume-reachable — IPv6 global \
+                 NÃO prova inbound (ex.: firewall Vivo). TXT /esporocarp pode anunciar \
+                 um nó inacessível. Confirme com: nc -vz <ip6> 4001 de fora da LAN."
+            );
+        }
         // Relay server só em esporocarp (ou --relay explícito legado).
         let enable_relay_server =
             config.enable_relay || matches!(membrane, Membrane::Esporocarp);
@@ -176,6 +197,7 @@ impl Organism {
         tracing::info!(
             %membrane,
             has_global_ip6,
+            assume_reachable,
             announce_ip = announce_ip.as_deref().unwrap_or("-"),
             "membrana diagnosticada"
         );
@@ -190,6 +212,9 @@ impl Organism {
             enable_relay_server,
             enable_relay_client,
             membrane,
+            assume_reachable,
+            enable_webrtc: config.enable_webrtc,
+            webrtc_port: config.webrtc_port,
         })?;
         hyphae.restore_metrics(state.hypha_metrics.clone());
 
@@ -240,6 +265,9 @@ impl Organism {
             sporocarp: config.sporocarp || matches!(membrane, Membrane::Esporocarp),
             membrane,
             dns_seed,
+            assume_reachable,
+            physarum: PhysarumNetwork::new(4, 0.1, 0.01),
+            physarum_phase: MyceliumPhase::Exploratory,
         };
 
         for rec in records {
@@ -323,6 +351,39 @@ impl Organism {
             membrane: self.membrane.as_str().to_string(),
             sporocarp: self.sporocarp,
             dns_seed: self.dns_seed.clone(),
+            wan_reachable: self.assume_reachable,
+            is_relay: self.assume_reachable
+                && (self.sporocarp || matches!(self.membrane, Membrane::Esporocarp)),
+            active_relay: self.hyphae.active_relay_peer().map(|p| p.to_string()),
+            relay_health: self.hyphae.relay_mesh_health_label(),
+            physarum_phase: match self.physarum_phase {
+                MyceliumPhase::Exploratory => "exploratory".into(),
+                MyceliumPhase::Transport => "transport".into(),
+                MyceliumPhase::Dormant => "dormant".into(),
+            },
+        }
+    }
+
+    /// Um passo Physarum: potenciais ← ATP + vizinhos; adapta condutâncias.
+    fn physarum_tick(&mut self, dt: f64) {
+        let neighbors = self.hyphae.connected_neighbors();
+        let n = (neighbors + 1).clamp(2, 16);
+        if self.physarum.n != n {
+            self.physarum = PhysarumNetwork::new(n, 0.1, 0.01);
+        }
+        self.physarum.potentials[0] = self.ledger.balance(Nutrient::Atp) as f64;
+        for i in 1..self.physarum.n {
+            self.physarum.potentials[i] = if i <= neighbors { 1.0 + (i as f64) * 0.01 } else { 0.0 };
+        }
+        self.physarum.step(dt);
+        let prev = self.physarum_phase;
+        self.physarum_phase = self.physarum.phase();
+        if self.physarum_phase != prev {
+            tracing::info!(
+                phase = ?self.physarum_phase,
+                neighbors,
+                "physarum fase"
+            );
         }
     }
 
@@ -943,10 +1004,17 @@ impl Organism {
                 message,
                 path,
                 content,
+                qel,
+                nostr,
+                ghost,
+                recipient,
             } => match self.sow(message, path, content) {
-                Ok(id) => Response::Ok {
-                    message: format!("plot semeado: {id}"),
-                },
+                Ok(id) => {
+                    let _ = (qel, nostr, ghost, recipient);
+                    Response::Ok {
+                        message: format!("plot semeado: {id}"),
+                    }
+                }
                 Err(e) => Response::Err {
                     message: e.to_string(),
                 },
@@ -978,7 +1046,12 @@ impl Organism {
                 },
                 Err(e) => Response::Err { message: e },
             },
-            Request::Recall { plot } => match plot.parse::<ContentId>() {
+            Request::Recall {
+                plot,
+                qel,
+                nostr,
+                qel_threshold,
+            } => match plot.parse::<ContentId>() {
                 Ok(id) => match self.bank.recall(&id) {
                     Some(p) => Response::Ok {
                         message: format!(
@@ -989,10 +1062,11 @@ impl Organism {
                         ),
                     },
                     None => {
+                        let _ = (qel, nostr, qel_threshold);
                         self.hyphae.dht_get(dht_key(&id));
                         Response::Ok {
                             message: format!(
-                                "plot {} ausente localmente; consulta DHT disparada",
+                                "plot {} ausente localmente; consulta DHT disparada (usa CLI --qel --nostr para mailbox)",
                                 id.short()
                             ),
                         }
@@ -1076,10 +1150,12 @@ impl Organism {
         let mut heartbeat = tokio::time::interval(Duration::from_secs(3600));
         let mut seed_tick = tokio::time::interval(Duration::from_secs(120));
         let mut duckdns_tick = tokio::time::interval(Duration::from_secs(300));
+        let mut physarum_tick = tokio::time::interval(Duration::from_secs(5));
         // Primeiro tick imediato já foi coberto na germinação; atrasa o próximo.
         seed_tick.tick().await;
         // DuckDNS: espera um pouco para ter listen addrs.
         duckdns_tick.tick().await;
+        physarum_tick.tick().await;
 
         if self.sporocarp {
             tracing::info!("sporocarp ativo — relay + DNS (se DUCKDNS_*) — sem UPnP");
@@ -1117,6 +1193,10 @@ impl Organism {
                     let _ = self.persist();
                 }
 
+                _ = physarum_tick.tick() => {
+                    self.physarum_tick(0.5);
+                }
+
                 _ = heartbeat.tick() => {
                     self.ledger.heartbeat(1);
                     let _ = self.store.save_ledger(&self.ledger);
@@ -1147,6 +1227,15 @@ impl Organism {
                             tracing::debug!(reached = n, "re-bootstrap de seeds");
                         }
                     }
+                    // Relay mesh: esporocarp alcançável anuncia; folhas tentam circuit.
+                    if self.assume_reachable && (self.sporocarp || matches!(self.membrane, Membrane::Esporocarp)) {
+                        if let Err(e) = self.hyphae.publish_relay_mesh_ad() {
+                            tracing::debug!("relay mesh ad: {e}");
+                        }
+                    } else if !self.sporocarp {
+                        self.hyphae.try_mesh_relay_circuits();
+                    }
+                    self.hyphae.mailbox_poll();
                     // Reinicia chambers mortas.
                     let dead: Vec<String> = {
                         let mut names = Vec::new();
@@ -1233,7 +1322,57 @@ impl Organism {
                         }
                         Some(HyphaEvent::PheromoneReceived { .. }) => {}
                         Some(HyphaEvent::RecordFound { key, value }) => {
-                            if let Some(id) = mycelium_sporebank::content_id_from_dht_key(&key) {
+                            if key.starts_with(RELAY_DHT_PREFIX) {
+                                if let Ok(adv) =
+                                    serde_json::from_slice::<RelayAdvertisement>(&value)
+                                {
+                                    self.hyphae.ingest_relay_ad(adv);
+                                    if !self.sporocarp {
+                                        self.hyphae.try_mesh_relay_circuits();
+                                    }
+                                }
+                            } else if key.starts_with(MAILBOX_DHT_PREFIX) {
+                                if let Ok(msg) = serde_json::from_slice::<MailboxMessage>(&value) {
+                                    if mycelium_hyphae::is_expired(&msg) {
+                                        tracing::debug!(id = %msg.id_hex, "mailbox expirada");
+                                    } else if msg.to == self.hyphae.peer_id().to_string() {
+                                        tracing::info!(
+                                            from = %msg.from,
+                                            id = %msg.id_hex,
+                                            ctype = ?msg.content_type,
+                                            "mailbox DHT"
+                                        );
+                                        if let Err(e) = self.hyphae.mailbox_ack(&msg.id_hex) {
+                                            tracing::debug!("mailbox ack: {e}");
+                                        }
+                                        // Entrega mínima: Generic → log; IsotopeAtom → absorb se Atom JSON
+                                        if matches!(
+                                            msg.content_type,
+                                            mycelium_hyphae::MailboxContentType::IsotopeAtom
+                                        ) {
+                                            if let Ok(frame) =
+                                                serde_json::from_slice::<(String, Atom)>(
+                                                    &msg.payload,
+                                                )
+                                            {
+                                                let (key, atom) = frame;
+                                                self.nucleus.absorb(&key, atom);
+                                                let _ = self.persist();
+                                            } else if let Ok(atom) =
+                                                serde_json::from_slice::<Atom>(&msg.payload)
+                                            {
+                                                // Payload legado sem chave — ignora absorb.
+                                                tracing::debug!(
+                                                    clock = atom.clock,
+                                                    "mailbox isotope sem chave"
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if let Some(id) =
+                                mycelium_sporebank::content_id_from_dht_key(&key)
+                            {
                                 match self.bank.absorb(&value) {
                                     Ok(_) => tracing::info!(plot = %id.short(), "esporo recuperado do DHT"),
                                     Err(e) => tracing::warn!("absorb DHT: {e}"),

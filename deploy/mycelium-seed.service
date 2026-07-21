@@ -12,8 +12,11 @@ Environment=RUST_LOG=info
 ExecStart=/usr/local/bin/mycelium daemon \
   --listen /ip4/0.0.0.0/tcp/4001 \
   --listen /ip6/::/tcp/4001 \
+  --listen /ip4/0.0.0.0/udp/4001/quic-v1 \
+  --listen /ip6/::/udp/4001/quic-v1 \
   --announce-ip ${MYCELIUM_ANNOUNCE_IP} \
   --announce-ip6 ${MYCELIUM_ANNOUNCE_IP6} \
+  --assume-reachable \
   --no-mdns \
   --sporocarp \
   --horizon-port 7474 \
@@ -22,7 +25,7 @@ Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
 # Horizon fica em 127.0.0.1 — não exponha 7474 sem reverse proxy.
-# DuckDNS (opcional): DUCKDNS_TOKEN + DUCKDNS_DOMAIN no seed.env
-
+# MYCELIUM_REACHABLE=1 e DUCKDNS_* em /etc/mycelium/seed.env
+# Só instalar após: ./scripts/verify-sporocarp.sh (docs/volunteer-sporocarp.md)
 [Install]
 WantedBy=multi-user.target

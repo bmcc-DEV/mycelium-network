@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 /// Opções para despertar o daemon.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DaemonOptions {
     pub contribute: Option<mycelium_core::Resources>,
     pub bootstrap: Vec<String>,
@@ -39,6 +39,33 @@ pub struct DaemonOptions {
     pub sporocarp: bool,
     /// Override de membrana (`--membrane`).
     pub membrane: Option<mycelium_core::Membrane>,
+    /// Inbound verificado (`--assume-reachable` / `MYCELIUM_REACHABLE`).
+    pub assume_reachable: bool,
+    pub enable_webrtc: bool,
+    pub webrtc_port: u16,
+}
+
+impl Default for DaemonOptions {
+    fn default() -> Self {
+        Self {
+            contribute: None,
+            bootstrap: Vec::new(),
+            horizon_port: 0,
+            listen: Vec::new(),
+            seed_file: None,
+            public_bootstrap: false,
+            bootstrap_url: None,
+            no_mdns: false,
+            announce_ip: None,
+            announce_ip6: None,
+            enable_relay: false,
+            sporocarp: false,
+            membrane: None,
+            assume_reachable: false,
+            enable_webrtc: false,
+            webrtc_port: 4002,
+        }
+    }
 }
 
 /// Desperta o daemon: socket de controle + loop do organismo.
@@ -61,6 +88,9 @@ pub async fn run_daemon(home: PathBuf, opts: DaemonOptions) -> Result<(), Organi
         enable_relay,
         sporocarp,
         membrane: opts.membrane,
+        assume_reachable: opts.assume_reachable,
+        enable_webrtc: opts.enable_webrtc,
+        webrtc_port: opts.webrtc_port,
     })?;
     let sock = organism.home().join("mycelium.sock");
     let mut token = std::env::var("MYCELIUM_CONTROL_TOKEN")

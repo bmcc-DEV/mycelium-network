@@ -1,21 +1,36 @@
-# Operar um seed / Sporocarp doméstico
+# Operar um seed / Volunteer Sporocarp (zero VPS)
 
-O seed público **não exige VPS**. Preferência: **Volunteer Sporocarp** com IPv6 (floresta) ou port-forward IPv4 explícito (raiz). Sem UPnP/STUN — ver [`rizomorphs.md`](rizomorphs.md).
+O seed público **não exige VPS**. Preferência: peer voluntário com inbound
+**verificado** (`MYCELIUM_REACHABLE=1`). Casa atrás de CGNAT/firewall ISP
+(ex. Vivo residencial) é folha — ver [`volunteer-sporocarp.md`](volunteer-sporocarp.md)
+e [`rizomorphs.md`](rizomorphs.md). Sem UPnP.
 
-## Requisitos
+## Fluxo rápido (voluntário)
 
-- Ideal: **IPv6** nativo no ISP (floresta)
-- Ou **port-forward TCP/UDP 4001** declarado com `--announce-ip` (raiz)
-- Binário `mycelium` (`cargo install --path cli/mycelium-cli`)
+```bash
+# 1) No peer: port-forward TCP(+UDP) 4001, daemon a escutar 0.0.0.0
+# 2) De OUTRA rede (5G):
+./scripts/verify-sporocarp.sh IP_PUBLICO 4001
 
-## Sporocarp em casa (recomendado)
+# 3) Só se ok:
+MYCELIUM_REACHABLE=1 ./scripts/run-public-seed.sh
+# ou 24/7:
+sudo MYCELIUM_REACHABLE=1 ./scripts/install-seed.sh \
+  --announce-ip IPV4 --announce-ip6 IPV6
+
+# 4) Exportar linha /esporocarp → seeds/mainnet.txt ou DuckDNS TXT
+./scripts/export-seed.sh ~/.local/share/mycelium-seed
+```
+
+## Sporocarp manual
 
 ```bash
 export MYCELIUM_HOME=/var/lib/mycelium-seed
-export MYCELIUM_ANNOUNCE_IP6=$(curl -6 -s ifconfig.co)   # se tiver IPv6
-# Se só IPv4 com port-forward:
+export MYCELIUM_REACHABLE=1
+export MYCELIUM_ANNOUNCE_IP6=$(curl -6 -s ifconfig.co)   # se IPv6 inbound ok
+# ou IPv4 com port-forward:
 # export MYCELIUM_ANNOUNCE_IP=$(curl -4 -s ifconfig.co)
-export DUCKDNS_TOKEN=seu-token
+export DUCKDNS_TOKEN=seu-token          # opcional
 export DUCKDNS_DOMAIN=meuspores
 export MYCELIUM_CONTROL_TOKEN=$(openssl rand -hex 16)
 
@@ -23,42 +38,33 @@ mycelium sprout --contribute 2cpu,4gb,100gb
 mycelium daemon \
   --listen /ip6/::/tcp/4001 \
   --listen /ip4/0.0.0.0/tcp/4001 \
+  --assume-reachable \
   --sporocarp \
   --no-mdns \
   --horizon-port 7474 \
   --contribute 2cpu,4gb,100gb
 ```
 
-Com `--sporocarp`:
+Com `--sporocarp` + reachable:
 
 - membrana **esporocarp** + relay server (circuit v2)
-- publish periódico do melhor multiaddr + `/esporocarp` no DuckDNS TXT (se `DUCKDNS_*`)
-- crédito ATP/Spores por circuito aceito
+- anúncio mesh `/mycelium/relay-mesh/v1` (só se `wan_reach`)
+- publish DuckDNS TXT com `/esporocarp` (se `DUCKDNS_*`)
 
-Sem `MYCELIUM_CONTROL_TOKEN`, o daemon gera `{home}/control.token`.
-
-## Install systemd (VPS ou casa)
+## Folhas (casa / 5G)
 
 ```bash
-sudo ./scripts/install-seed.sh
+mycelium daemon --seed-file ./seeds/mainnet.txt --no-mdns
+# ou: --public-bootstrap  (DNS TXT Spore Bank)
 ```
 
-O unit legado usa `--relay`. Para sporocarp, ajuste o service para `--sporocarp` e `DUCKDNS_*` em `/etc/mycelium/seed.env`.
-
-## Clientes (folhas)
-
-```bash
-mycelium daemon --public-bootstrap --no-mdns
-```
-
-Folhas priorizam seeds `/esporocarp` e não dialam `/folha`.
+Folhas priorizam `/esporocarp`. Não dialam `/folha`.
 
 ## Catálogo
 
-**DNS (preferido):** o sporocarp atualiza DuckDNS sozinho.
-
-**HTTP:** `seeds/mainnet.txt` no GitHub via `--public-bootstrap`.
+- **DNS:** DuckDNS TXT do voluntário  
+- **HTTP/git:** `seeds/mainnet.txt` via `--public-bootstrap` / `--seed-file`
 
 ## Filosofia
 
-IPv6 direto → esporocarp relay. IPv4 só com port-forward declarado. Sem “enganar” o NAT.
+Inbound verificado → esporocarp. IPv6 na interface ≠ alcançável. Sem “enganar” o NAT.

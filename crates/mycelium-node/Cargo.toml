@@ -11,6 +11,7 @@ mycelium-hyphae = { workspace = true }
 mycelium-pheromones = { workspace = true }
 mycelium-nutrients = { workspace = true }
 mycelium-sporebank = { workspace = true }
+mycelium-tropical = { workspace = true }
 giggs = { workspace = true }
 thefield = { workspace = true }
 inertia = { workspace = true }
@@ -31,3 +32,9 @@ libp2p = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = "3"
+
+[features]
+default = []
+webrtc = ["mycelium-hyphae/webrtc"]
+# Mantido para a CLI activar a mesma feature flag; publish Nostr corre no CLI.
+nostr = []

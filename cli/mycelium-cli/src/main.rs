@@ -70,6 +70,16 @@ enum Commands {
         /// Override da membrana (floresta|raiz|folha|esporocarp).
         #[arg(long = "membrane", value_parser = parse_membrane)]
         membrane: Option<mycelium_core::Membrane>,
+        /// Declara inbound TCP/QUIC alcançável (auto-esporocarp se IPv6/announce).
+        /// Env: MYCELIUM_REACHABLE=1
+        #[arg(long = "assume-reachable", env = "MYCELIUM_REACHABLE")]
+        assume_reachable: bool,
+        /// Escuta webrtc-direct (requer `cargo build --features webrtc`).
+        #[arg(long = "webrtc")]
+        webrtc: bool,
+        /// Porta UDP webrtc-direct.
+        #[arg(long = "webrtc-port", default_value_t = 4002)]
+        webrtc_port: u16,
         /// Depreciado: ignorado (Política de Membrana — sem UPnP).
         #[arg(long = "upnp")]
         upnp: bool,
@@ -82,6 +92,21 @@ enum Commands {
         path: String,
         #[arg(long, default_value = "fn main() {}")]
         content: String,
+        /// Fragmenta com QEL (formato k,n — default 3,7). Requer --features nostr.
+        #[arg(long, value_name = "K,N")]
+        qel: Option<String>,
+        /// Publica anúncio NIP-94 + shards via relays Nostr (wss:// outbound).
+        #[arg(long)]
+        nostr: bool,
+        /// Usa GhostID efémero secp256k1 para assinar eventos Nostr.
+        #[arg(long)]
+        ghost: bool,
+        /// Pubkey Nostr hex do destinatário (NIP-44); sem isto shards vão em plaintext assinado.
+        #[arg(long = "to")]
+        recipient: Option<String>,
+        /// Hybrid Theory: QEL + Nostr + blockstore local (ipfs-blocks/).
+        #[arg(long)]
+        hybrid: bool,
     },
     Signal {
         #[arg(long)]
@@ -100,6 +125,18 @@ enum Commands {
     Recall {
         #[arg(long)]
         plot: String,
+        /// Reconstrói via shards QEL (Nostr).
+        #[arg(long)]
+        qel: bool,
+        /// Busca shards em relays Nostr.
+        #[arg(long)]
+        nostr: bool,
+        /// Threshold QEL (default 3).
+        #[arg(long, default_value_t = 3)]
+        qel_threshold: u8,
+        /// Hybrid: local → Nostr → blockstore ipfs local.
+        #[arg(long)]
+        hybrid: bool,
     },
     Bootstrap {
         #[arg(long)]
@@ -208,6 +245,9 @@ fn main() {
             relay,
             sporocarp,
             membrane,
+            assume_reachable,
+            webrtc,
+            webrtc_port,
             upnp,
         } => rt.block_on(daemon(
             &home,
@@ -226,6 +266,9 @@ fn main() {
                 enable_relay: relay || sporocarp,
                 sporocarp,
                 membrane,
+                assume_reachable,
+                enable_webrtc: webrtc,
+                webrtc_port,
             },
             upnp,
         )),
@@ -234,13 +277,13 @@ fn main() {
             message,
             path,
             content,
-        } => rt.block_on(rpc(
-            &home,
-            Request::Sow {
-                message,
-                path,
-                content,
-            },
+            qel,
+            nostr,
+            ghost,
+            recipient,
+            hybrid,
+        } => rt.block_on(sow_cmd(
+            &home, message, path, content, qel, nostr, ghost, recipient, hybrid,
         )),
         Commands::Signal {
             plot,
@@ -259,7 +302,13 @@ fn main() {
         Commands::Resonate { signal } => {
             rt.block_on(rpc(&home, Request::Resonate { signal }))
         }
-        Commands::Recall { plot } => rt.block_on(rpc(&home, Request::Recall { plot })),
+        Commands::Recall {
+            plot,
+            qel,
+            nostr,
+            qel_threshold,
+            hybrid,
+        } => rt.block_on(recall_cmd(&home, plot, qel, nostr, qel_threshold, hybrid)),
         Commands::Bootstrap { addr } => {
             rt.block_on(rpc(&home, Request::Bootstrap { addr }))
         }
@@ -491,6 +540,360 @@ async fn status(home: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+async fn sow_cmd(
+    home: &PathBuf,
+    message: String,
+    path: String,
+    content: String,
+    qel: Option<String>,
+    nostr: bool,
+    ghost: bool,
+    recipient: Option<String>,
+    hybrid: bool,
+) -> Result<(), String> {
+    #[cfg(not(feature = "nostr"))]
+    {
+        if qel.is_some() || nostr || ghost || recipient.is_some() || hybrid {
+            return Err(
+                "sow --qel/--nostr/--ghost/--hybrid requer `cargo build -p mycelium-cli --features nostr`"
+                    .into(),
+            );
+        }
+    }
+    let want_nostr = nostr || qel.is_some() || ghost || hybrid;
+    let qel = if want_nostr && qel.is_none() {
+        Some("3,7".into())
+    } else {
+        qel
+    };
+    let sock = home.join("mycelium.sock");
+    let resp = call(
+        &sock,
+        Request::Sow {
+            message,
+            path,
+            content,
+            qel: qel.clone(),
+            nostr: nostr || hybrid,
+            ghost: ghost || nostr || hybrid,
+            recipient: recipient.clone(),
+        },
+    )
+    .await?;
+
+    #[cfg(feature = "nostr")]
+    if want_nostr {
+        if let Response::Ok { message: ref msg } = resp {
+            if let Some(id_str) = msg.strip_prefix("plot semeado: ") {
+                let id_str = id_str.split(';').next().unwrap_or(id_str).trim();
+                match publish_plot_nostr(
+                    home,
+                    id_str,
+                    qel.as_deref(),
+                    recipient.as_deref(),
+                    hybrid,
+                )
+                .await
+                {
+                    Ok(extra) => {
+                        println!("[🍄] {msg}{extra}");
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        println!("[🍄] {msg}");
+                        return Err(format!("plot local ok; nostr/qel falhou: {e}"));
+                    }
+                }
+            }
+        }
+    }
+
+    print_response(resp)
+}
+
+#[cfg(feature = "nostr")]
+async fn publish_plot_nostr(
+    home: &PathBuf,
+    id_str: &str,
+    qel_spec: Option<&str>,
+    recipient: Option<&str>,
+    hybrid: bool,
+) -> Result<String, String> {
+    use mycelium_core::ContentId;
+    use mycelium_sporebank::SporeBank;
+    use std::str::FromStr;
+
+    let id = ContentId::from_str(id_str).map_err(|e| e.to_string())?;
+    let bank = SporeBank::open(home).map_err(|e| e.to_string())?;
+    let bytes = bank.spore_print(&id).map_err(|e| e.to_string())?;
+
+    let (threshold, total) = parse_qel_kn(qel_spec)?;
+    let cfg = mycelium_qel::QelConfig {
+        threshold,
+        total,
+        ttl_secs: 86_400,
+    };
+    let ghost = mycelium_ghostid::GhostId::spawn_quick(cfg.ttl_secs).map_err(|e| e.to_string())?;
+    let mut shards = if hybrid {
+        mycelium_qel::fragment_hybrid(&bytes, &id.to_string(), &cfg).map_err(|e| e.to_string())?
+    } else {
+        mycelium_qel::fragment(&bytes, &id.to_string(), &cfg).map_err(|e| e.to_string())?
+    };
+
+    let mut landscape_note = String::new();
+    if hybrid {
+        let ctx = mycelium_distancebridge::TransportContext {
+            has_internet: true,
+            ipfs_peers: 1,
+            relay_available: false,
+            ..Default::default()
+        };
+        let ranked = mycelium_distancebridge::select_transports(&ctx, 3);
+        landscape_note = ranked
+            .iter()
+            .map(|(t, p)| format!("{t:?}:{p:.2}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let hints =
+            mycelium_distancebridge::hybrid_hints_from_landscape(&ctx, threshold, total);
+        for (shard, hint) in shards.iter_mut().zip(hints) {
+            shard.transport = hint;
+        }
+    }
+
+    let blake3_hex = hex::encode(blake3::hash(&bytes).as_bytes());
+    let pool = mycelium_nostr::RelayPool::default_public().with_min_relays(1);
+    // Publicar shards de mailbox (Nostr / RelayMesh / Sms); store fica no blockstore.
+    let to_publish: Vec<_> = if hybrid {
+        shards
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.transport,
+                    mycelium_qel::TransportHint::Nostr
+                        | mycelium_qel::TransportHint::RelayMesh
+                        | mycelium_qel::TransportHint::Sms
+                )
+            })
+            .cloned()
+            .collect()
+    } else {
+        shards.iter().take(threshold as usize).cloned().collect()
+    };
+    let published = mycelium_nostr::publish_shards(
+        &pool,
+        &ghost,
+        &to_publish,
+        &blake3_hex,
+        bytes.len(),
+        recipient,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut extra = format!(
+        "; qel={threshold},{total} nostr_publishes={published} ghost={}",
+        ghost.nostr_pubkey_hex()
+    );
+
+    if hybrid {
+        let store = mycelium_ipfs::BlockStore::open(home).map_err(|e| e.to_string())?;
+        store.put_named(&id, &bytes).map_err(|e| e.to_string())?;
+        let mut ipfs_shards = 0usize;
+        for shard in shards.iter().filter(|s| {
+            matches!(
+                s.transport,
+                mycelium_qel::TransportHint::Ipfs
+                    | mycelium_qel::TransportHint::Dtn
+                    | mycelium_qel::TransportHint::Visual
+            )
+        }) {
+            let wire = serde_json::to_vec(shard).map_err(|e| e.to_string())?;
+            let shard_key = format!("{}:shard:{}", id, shard.index);
+            let shard_id = ContentId::of(shard_key.as_bytes());
+            store
+                .put_named(&shard_id, &wire)
+                .map_err(|e| e.to_string())?;
+            ipfs_shards += 1;
+        }
+        extra.push_str(&format!(
+            " hybrid=1 ipfs_plot=1 ipfs_shards={ipfs_shards} landscape=[{landscape_note}]"
+        ));
+    }
+
+    Ok(extra)
+}
+
+#[cfg(feature = "nostr")]
+fn parse_qel_kn(spec: Option<&str>) -> Result<(u8, u8), String> {
+    let s = spec.unwrap_or("3,7");
+    let (k, n) = s
+        .split_once(',')
+        .ok_or_else(|| format!("qel inválido '{s}' — use k,n (ex. 3,7)"))?;
+    Ok((
+        k.trim()
+            .parse()
+            .map_err(|_| "qel threshold inválido".to_string())?,
+        n.trim()
+            .parse()
+            .map_err(|_| "qel total inválido".to_string())?,
+    ))
+}
+
+async fn recall_cmd(
+    home: &PathBuf,
+    plot: String,
+    qel: bool,
+    nostr: bool,
+    qel_threshold: u8,
+    hybrid: bool,
+) -> Result<(), String> {
+    #[cfg(not(feature = "nostr"))]
+    {
+        if qel || nostr || hybrid {
+            return Err(
+                "recall --qel/--nostr/--hybrid requer `cargo build -p mycelium-cli --features nostr`"
+                    .into(),
+            );
+        }
+    }
+
+    #[cfg(feature = "nostr")]
+    if qel || nostr || hybrid {
+        // 1) SporeBank local
+        if let Ok(bank) = mycelium_sporebank::SporeBank::open(home) {
+            if let Ok(id) = plot.parse::<mycelium_core::ContentId>() {
+                if let Some(p) = bank.recall(&id) {
+                    println!(
+                        "[🍄] plot {} — \"{}\" ({} leaves) [local]",
+                        id.short(),
+                        p.message,
+                        p.leaves.len()
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
+        // 2) Nostr QEL
+        match recall_plot_nostr(home, &plot, qel_threshold).await {
+            Ok(msg) => {
+                println!("[🍄] {msg}");
+                return Ok(());
+            }
+            Err(nostr_err) => {
+                // 3) Hybrid: blockstore ipfs local
+                if hybrid {
+                    match recall_plot_ipfs(home, &plot).await {
+                        Ok(msg) => {
+                            println!("[🍄] {msg}");
+                            return Ok(());
+                        }
+                        Err(ipfs_err) => {
+                            let sock = home.join("mycelium.sock");
+                            if sock.exists() || sock.with_extension("tcp").exists() {
+                                let resp = call(
+                                    &sock,
+                                    Request::Recall {
+                                        plot: plot.clone(),
+                                        qel,
+                                        nostr,
+                                        qel_threshold: Some(qel_threshold),
+                                    },
+                                )
+                                .await?;
+                                print_response(resp)?;
+                            }
+                            return Err(format!(
+                                "hybrid: nostr={nostr_err}; ipfs={ipfs_err}"
+                            ));
+                        }
+                    }
+                }
+
+                let sock = home.join("mycelium.sock");
+                if sock.exists() || sock.with_extension("tcp").exists() {
+                    let resp = call(
+                        &sock,
+                        Request::Recall {
+                            plot: plot.clone(),
+                            qel,
+                            nostr,
+                            qel_threshold: Some(qel_threshold),
+                        },
+                    )
+                    .await?;
+                    print_response(resp)?;
+                }
+                return Err(format!("nostr/qel: {nostr_err}"));
+            }
+        }
+    }
+
+    let sock = home.join("mycelium.sock");
+    print_response(
+        call(
+            &sock,
+            Request::Recall {
+                plot,
+                qel,
+                nostr,
+                qel_threshold: None,
+            },
+        )
+        .await?,
+    )
+}
+
+#[cfg(feature = "nostr")]
+async fn recall_plot_ipfs(home: &PathBuf, plot: &str) -> Result<String, String> {
+    use mycelium_core::ContentId;
+    use mycelium_sporebank::SporeBank;
+    use std::str::FromStr;
+
+    let id = ContentId::from_str(plot).map_err(|e| e.to_string())?;
+    let store = mycelium_ipfs::BlockStore::open(home).map_err(|e| e.to_string())?;
+    let bytes = store.get(&id).map_err(|e| e.to_string())?;
+    let mut bank = SporeBank::open(home).map_err(|e| e.to_string())?;
+    let absorbed = bank.absorb(&bytes).map_err(|e| e.to_string())?;
+    let p = bank.recall(&absorbed);
+    Ok(format!(
+        "plot {} reconstruído via ipfs-blocks — \"{}\" ({} leaves)",
+        absorbed.short(),
+        p.map(|x| x.message.as_str()).unwrap_or("?"),
+        p.map(|x| x.leaves.len()).unwrap_or(0)
+    ))
+}
+
+#[cfg(feature = "nostr")]
+async fn recall_plot_nostr(home: &PathBuf, plot: &str, threshold: u8) -> Result<String, String> {
+    use mycelium_core::ContentId;
+    use mycelium_sporebank::SporeBank;
+    use std::str::FromStr;
+
+    let id = ContentId::from_str(plot).map_err(|e| e.to_string())?;
+    let pool = mycelium_nostr::RelayPool::default_public().with_min_relays(1);
+    let shards = mycelium_nostr::fetch_shards(&pool, &id.to_string(), threshold, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    if shards.len() < threshold as usize {
+        return Err(format!(
+            "só {} shards Nostr (preciso {threshold})",
+            shards.len()
+        ));
+    }
+    let bytes = mycelium_qel::reconstruct(&shards).map_err(|e| e.to_string())?;
+    let mut bank = SporeBank::open(home).map_err(|e| e.to_string())?;
+    let absorbed = bank.absorb(&bytes).map_err(|e| e.to_string())?;
+    let p = bank.recall(&absorbed);
+    Ok(format!(
+        "plot {} reconstruído via Nostr/QEL — \"{}\" ({} leaves)",
+        absorbed.short(),
+        p.map(|x| x.message.as_str()).unwrap_or("?"),
+        p.map(|x| x.leaves.len()).unwrap_or(0)
+    ))
+}
+
 async fn rpc(home: &PathBuf, request: Request) -> Result<(), String> {
     let sock = home.join("mycelium.sock");
     print_response(call(&sock, request).await?)
@@ -544,6 +947,10 @@ async fn deploy(home: &PathBuf, opts: DeployOpts) -> Result<(), String> {
                 message: opts.message,
                 path: opts.path,
                 content: opts.content,
+                qel: None,
+                nostr: false,
+                ghost: false,
+                recipient: None,
             },
         )
         .await?
@@ -648,6 +1055,22 @@ fn print_response(resp: Response) -> Result<(), String> {
             }
             if s.sporocarp {
                 println!("    sporocarp  : sim");
+            }
+            println!(
+                "    wan_reach  : {}",
+                if s.wan_reachable { "sim" } else { "nao" }
+            );
+            if s.is_relay {
+                println!("    is_relay   : sim");
+            }
+            if let Some(r) = &s.active_relay {
+                println!("    active_relay: {r}");
+            }
+            if !s.relay_health.is_empty() {
+                println!("    relay_mesh : {}", s.relay_health);
+            }
+            if !s.physarum_phase.is_empty() {
+                println!("    physarum   : {}", s.physarum_phase);
             }
             if let Some(dns) = &s.dns_seed {
                 println!("    dns_seed   : {dns}");

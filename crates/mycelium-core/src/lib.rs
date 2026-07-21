@@ -104,6 +104,12 @@ impl FromStr for ContentId {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.contains('…') || s.contains("...") || s == "Qm…" {
+            return Err(
+                "ContentId placeholder inválido — cola o id completo do sow (Qm + 64 hex)"
+                    .into(),
+            );
+        }
         let hex_str = s.strip_prefix("Qm").unwrap_or(s);
         let bytes = hex::decode(hex_str).map_err(|e| format!("ContentId inválido: {e}"))?;
         if bytes.len() != 32 {
@@ -306,12 +312,29 @@ impl FromStr for Membrane {
     }
 }
 
-/// Diagnóstico sem probe externo (sem STUN): declarações + IPv6 global local.
+/// `MYCELIUM_REACHABLE=1|true|yes` — operador afirma inbound TCP/QUIC verificado.
+pub fn env_assume_reachable() -> bool {
+    match std::env::var("MYCELIUM_REACHABLE") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => false,
+    }
+}
+
+/// Diagnóstico de membrana.
+///
+/// - `--sporocarp` / `force_sporocarp`: esporocarp explícito (operador assume o risco).
+/// - `assume_reachable` + (IPv6 global ou `--announce-ip`): auto-esporocarp (inbound verificado).
+/// - IPv6 global **sem** reachable → floresta (pode ser inacessível de WAN — ex. firewall Vivo).
+/// - Sem STUN automático: reachable é declaração/`MYCELIUM_REACHABLE`, não probe mágica.
 pub fn diagnose_membrane(
     has_global_ip6: bool,
     announce_ip: Option<&str>,
     force_sporocarp: bool,
     force: Option<Membrane>,
+    assume_reachable: bool,
 ) -> Membrane {
     if let Some(m) = force {
         return m;
@@ -319,10 +342,14 @@ pub fn diagnose_membrane(
     if force_sporocarp {
         return Membrane::Esporocarp;
     }
+    let has_announce = announce_ip.map(|s| !s.trim().is_empty()).unwrap_or(false);
+    if assume_reachable && (has_global_ip6 || has_announce) {
+        return Membrane::Esporocarp;
+    }
     if has_global_ip6 {
         return Membrane::Floresta;
     }
-    if announce_ip.map(|s| !s.trim().is_empty()).unwrap_or(false) {
+    if has_announce {
         return Membrane::Raiz;
     }
     Membrane::Folha
@@ -408,20 +435,35 @@ mod tests {
     #[test]
     fn diagnose_membrane_matrix() {
         assert_eq!(
-            diagnose_membrane(false, None, true, None),
+            diagnose_membrane(false, None, true, None, false),
             Membrane::Esporocarp
         );
         assert_eq!(
-            diagnose_membrane(true, Some("1.2.3.4"), false, None),
+            diagnose_membrane(true, Some("1.2.3.4"), false, None, false),
             Membrane::Floresta
         );
         assert_eq!(
-            diagnose_membrane(false, Some("203.0.113.1"), false, None),
+            diagnose_membrane(false, Some("203.0.113.1"), false, None, false),
             Membrane::Raiz
         );
         assert_eq!(
-            diagnose_membrane(false, None, false, None),
+            diagnose_membrane(false, None, false, None, false),
             Membrane::Folha
+        );
+        // IPv6 sem reachable ≠ esporocarp WAN
+        assert_eq!(
+            diagnose_membrane(true, None, false, None, false),
+            Membrane::Floresta
+        );
+        // reachable + IPv6 → auto-esporocarp
+        assert_eq!(
+            diagnose_membrane(true, None, false, None, true),
+            Membrane::Esporocarp
+        );
+        // reachable + announce IPv4 → auto-esporocarp
+        assert_eq!(
+            diagnose_membrane(false, Some("203.0.113.1"), false, None, true),
+            Membrane::Esporocarp
         );
     }
 

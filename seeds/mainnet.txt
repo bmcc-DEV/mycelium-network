@@ -1,6 +1,10 @@
 # Mycelium Network — catálogo público de seeds (mainnet)
 #
-# Requer TCP 4001 aberto no NAT/firewall do operador do seed.
-# Atualize com: ./scripts/run-public-seed.sh && ./scripts/export-seed.sh …
+# Só entradas com inbound VERIFICADO (./scripts/verify-sporocarp.sh).
+# Formato: …/p2p/<PeerId>/esporocarp
+# Atualize: MYCELIUM_REACHABLE=1 ./scripts/run-public-seed.sh
+#           ./scripts/export-seed.sh … >> seeds/mainnet.txt
+# Docs: docs/volunteer-sporocarp.md
 #
-/ip4/177.102.211.60/tcp/4001/p2p/12D3KooWHsWjJCQN1YMKt1KVdaSGWsLMNr8fdRgTdzD3gYwXvmSd
+# Entrada abaixo é histórica (CPE Vivo) — inbound TCP falhou em Jul/2026; comentada.
+# /ip4/177.102.211.60/tcp/4001/p2p/12D3KooWHsWjJCQN1YMKt1KVdaSGWsLMNr8fdRgTdzD3gYwXvmSd

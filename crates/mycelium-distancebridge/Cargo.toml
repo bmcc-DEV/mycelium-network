@@ -1,0 +1,10 @@
+[package]
+name = "mycelium-distancebridge"
+description = "DistanceBridge fase 0: paisagem de transportes (ET-COSMIC DistanceBridge/QRC)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mycelium-qel = { workspace = true }
+serde = { workspace = true }
