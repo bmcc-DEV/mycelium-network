@@ -5,14 +5,16 @@ Premissa: **nenhum nó é servidor central**. Casa atrás de CGNAT/firewall
 
 **Hybrid Theory (A + B):**
 
-- **Pista B (já útil sem voluntário):** outbound Nostr + QEL + GhostID + blockstore
-  local (`mycelium sow --hybrid` / `recall --hybrid`) — ver [`nostr-qel.md`](nostr-qel.md).
-  Relays públicos (`wss://`) substituem a mailbox WAN.
+- **Pista B (já útil sem voluntário):** outbound Nostr + QEL + GhostID + **Nostr
+  transport** (`vizinhos` libp2p sobre WSS; auto em folha/floresta) — ver
+  [`nostr-transport.md`](nostr-transport.md) / [`nostr-qel.md`](nostr-qel.md).
 - **Pista A (este doc):** o esporocarpo voluntário desbloqueia **mesh live** libp2p
   (circuit relay, Horizon remoto). Sem proof → sem `/esporocarp`.
 
 Enquanto a lista em [`candidatos.md`](candidatos.md) não tem verde, a folha CGNAT
-já semeia via Nostr; o voluntário não é pré-requisito do mailbox.
+já tem vizinhos via Nostr; o voluntário não é pré-requisito do mailbox.
+
+Próximo passo humano: `./scripts/volunteer-pipeline.sh next`
 
 Índice do ciclo: [`engenharia-reversa-bloqueio.md`](engenharia-reversa-bloqueio.md) ·
 [`invariante_membrana.md`](invariante_membrana.md) · [`rizomorphs.md`](rizomorphs.md)

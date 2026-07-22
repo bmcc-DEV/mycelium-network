@@ -99,6 +99,47 @@ impl Transport for NostrTransport {
                     return;
                 }
             };
+
+            // Re-anúncio periódico da sessão estável (TTL candidate).
+            let sk_ann = sk;
+            let relay_ann = relay.clone();
+            let relay_url_ann = relay_url_bg.clone();
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+                loop {
+                    tick.tick().await;
+                    let Ok(ghost_ann) = GhostId::from_secret_bytes(sk_ann, 3600) else {
+                        continue;
+                    };
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let tags = vec![
+                        vec!["qel".into(), "candidate-relay".into()],
+                        vec!["expires".into(), (now + 300).to_string()],
+                        vec!["qel-backchannel".into(), relay_url_ann.clone()],
+                        vec!["qel-transports".into(), "nostr-ws".into()],
+                        vec![
+                            "d".into(),
+                            format!("listen:{}", ghost_ann.nostr_pubkey_hex()),
+                        ],
+                    ];
+                    let content = json!({
+                        "type": "candidate-relay",
+                        "version": 1,
+                        "ecdh_public": ghost_ann.nostr_pubkey_hex(),
+                    })
+                    .to_string();
+                    if let Ok(ann) = seal_event(&ghost_ann, now, KIND_QEL_CANDIDATE, tags, content)
+                    {
+                        if relay_ann.publish(&ann).is_ok() {
+                            tracing::debug!("nostr listen re-announce");
+                        }
+                    }
+                }
+            });
+
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())

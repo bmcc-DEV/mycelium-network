@@ -865,40 +865,53 @@ impl HyphaeNode {
         self.reach(addr)
     }
 
-    /// Descoberta CandidateRelay + dial dos peers encontrados.
+    /// Descoberta CandidateRelay (sessão estável) + dial dos peers frescos.
     #[cfg(feature = "nostr-transport")]
     pub async fn nostr_discover_and_dial(
         &mut self,
         relay_url: &str,
-        already: &mut std::collections::HashSet<String>,
+        already: &mut std::collections::HashMap<String, std::time::Instant>,
     ) -> Result<usize, HyphaeError> {
-        use mycelium_nostr::{run_candidate_round, CandidateSession, RelayPool};
-        let self_ghost = self.nostr_home.as_ref().and_then(|home| {
-            CandidateSession::load_or_create(home)
-                .ok()
-                .map(|(_, g)| g.nostr_pubkey_hex())
-        });
+        use mycelium_nostr::announce_and_discover_session;
+        use std::time::{Duration, Instant};
 
-        let pool = RelayPool::new(vec![relay_url.to_string()]);
-        let report = run_candidate_round(&pool)
+        const RETRY_AFTER: Duration = Duration::from_secs(180);
+        let home = self
+            .nostr_home
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from(".mycelium"));
+
+        let (_self_pk, peers) = announce_and_discover_session(&home, relay_url)
             .await
             .map_err(|e| HyphaeError::Gossip(e.to_string()))?;
+
+        let now = Instant::now();
+        already.retain(|_, t| now.duration_since(*t) < RETRY_AFTER);
+
         let mut dialed = 0usize;
-        for peer in report.peers.into_iter().take(4) {
-            if already.contains(&peer) {
-                continue;
+        // Preferir listens; no máximo 4 dials por tick.
+        for peer in peers.into_iter().take(4) {
+            if let Some(t) = already.get(&peer.ghost_id) {
+                if now.duration_since(*t) < RETRY_AFTER {
+                    continue;
+                }
             }
-            if self_ghost.as_ref() == Some(&peer) {
-                already.insert(peer);
-                continue;
-            }
-            match self.reach_nostr(relay_url, &peer) {
+            let dial_relay = if peer.relay_url.starts_with("wss://") {
+                peer.relay_url.as_str()
+            } else {
+                relay_url
+            };
+            match self.reach_nostr(dial_relay, &peer.ghost_id) {
                 Ok(()) => {
-                    tracing::info!(%peer, "nostr dial enfileirado");
-                    already.insert(peer);
+                    tracing::info!(
+                        peer = %peer.ghost_id,
+                        listen = peer.is_listen,
+                        "nostr dial enfileirado"
+                    );
+                    already.insert(peer.ghost_id, now);
                     dialed += 1;
                 }
-                Err(e) => tracing::warn!(error = %e, %peer, "reach_nostr falhou"),
+                Err(e) => tracing::warn!(error = %e, peer = %peer.ghost_id, "reach_nostr falhou"),
             }
         }
         Ok(dialed)

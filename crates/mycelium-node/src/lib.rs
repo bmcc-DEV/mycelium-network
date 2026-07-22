@@ -43,7 +43,8 @@ pub struct DaemonOptions {
     pub assume_reachable: bool,
     pub enable_webrtc: bool,
     pub webrtc_port: u16,
-    pub enable_nostr_transport: bool,
+    /// `None` = auto (folha/floresta); `Some` = forçar on/off.
+    pub nostr_transport: Option<bool>,
     pub nostr_relay: Option<String>,
 }
 
@@ -66,7 +67,7 @@ impl Default for DaemonOptions {
             assume_reachable: false,
             enable_webrtc: false,
             webrtc_port: 4002,
-            enable_nostr_transport: false,
+            nostr_transport: None,
             nostr_relay: None,
         }
     }
@@ -95,7 +96,7 @@ pub async fn run_daemon(home: PathBuf, opts: DaemonOptions) -> Result<(), Organi
         assume_reachable: opts.assume_reachable,
         enable_webrtc: opts.enable_webrtc,
         webrtc_port: opts.webrtc_port,
-        enable_nostr_transport: opts.enable_nostr_transport,
+        nostr_transport: opts.nostr_transport,
         nostr_relay: opts.nostr_relay,
     })?;
     let sock = organism.home().join("mycelium.sock");

@@ -48,9 +48,11 @@ Pipeline automatizado da pista A (esporocarpo voluntário).
   folha-attach <multiaddr> na folha: seed + restart + vizinhos>=1
   mark <nome> <estado>     actualiza docs/candidatos.state.json
   status                   candidatos + folha + seeds
+  next                     checklist do próximo passo humano
 
 Exemplos:
   $0 cgnat-check
+  $0 next
   $0 pitch "Amigo fibra"
   $0 prep-listen                          # voluntário
   $0 probe 203.0.113.10                   # 5G
@@ -328,6 +330,34 @@ print(f"marcado: {nome} → {estado}")
 PY
 }
 
+cmd_next() {
+  ensure_state
+  cat <<EOF
+== próximo passo (pista A — esporocarpo) ==
+
+Estado actual (CGNAT folha):
+  • Nostr transport já dá vizinhos sem voluntário (pista B / mesh leve).
+  • Esporocarpo voluntário ainda falta para mesh live (circuit relay, baixa latência).
+
+Checklist humano:
+  1) $0 pitch "Amigo fibra"          # copia mensagem + marca prospecto
+  2) Enviar a mensagem (WhatsApp/Signal) — só tu podes fazer isto
+  3) No PC do voluntário (após port-forward $PORT):
+       $0 prep-listen
+  4) No telemóvel 5G:
+       $0 probe <IP_PUBLICO>
+  5) No voluntário:
+       $0 onboard proof.json
+  6) Na folha (TushiBook):
+       $0 folha-attach '/ip4/…/tcp/$PORT/p2p/…/esporocarp'
+
+Ver estado: $0 status
+Docs: docs/candidatos.md · docs/volunteer-sporocarp.md · docs/nostr-transport.md
+EOF
+  echo
+  cmd_status
+}
+
 cmd_status() {
   ensure_state
   echo "== candidatos.state.json =="
@@ -342,13 +372,19 @@ cmd_status() {
   local bin="${BIN:-$ROOT/target/release/mycelium}"
   [[ -x "$bin" ]] || bin="$(command -v mycelium || true)"
   if [[ -x "$bin" ]]; then
-    "$bin" status 2>/dev/null | rg -i 'Organismo|vizinhos|membrana|physarum|wan' || echo "(folha down — ./scripts/run-folha.sh)"
+    "$bin" status 2>/dev/null | rg -i 'Organismo|vizinhos|membrana|physarum|wan|unix/mycelium-nostr' || echo "(folha down — ./scripts/run-folha.sh)"
   else
     echo "(sem binário mycelium)"
   fi
   echo
   echo "== seeds/mainnet.txt (esporocarp) =="
-  grep -E 'esporocarp|^#' "$MAINNET" | grep -v '^#' | head -10 || echo "(nenhuma linha activa)"
+  grep -E 'esporocarp|^#' "$MAINNET" | grep -v '^#' | head -10 || echo "(nenhuma linha activa — precisa voluntário verde)"
+  local verdes
+  verdes="$(grep -c 'esporocarp' "$MAINNET" 2>/dev/null || echo 0)"
+  if [[ "${verdes:-0}" -eq 0 ]]; then
+    echo
+    echo "Gate: zero esporocarpos em mainnet → corre: $0 next"
+  fi
 }
 
 main() {
@@ -363,6 +399,7 @@ main() {
     folha-attach|attach) cmd_folha_attach "$@" ;;
     mark) cmd_mark "$@" ;;
     status) cmd_status "$@" ;;
+    next) cmd_next "$@" ;;
     -h|--help|help|"") usage ;;
     *) die "comando desconhecido: $cmd (help)" ;;
   esac

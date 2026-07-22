@@ -2,11 +2,16 @@
 
 Critério verde: IP público real + probe TCP ok + verify exit 0.
 
-**Hybrid Theory:** sem verde, a folha já semeia via `mycelium sow --hybrid`. O voluntário desbloqueia **mesh live**.
+**Hybrid Theory:** sem verde, a folha já tem mesh leve via **Nostr transport**
+(`vizinhos` sobre WSS, auto em `folha`/`floresta`). O voluntário desbloqueia
+**mesh live** (circuit relay, baixa latência).
 
 ## Pipeline automático (usa isto)
 
 ```bash
+# O que falta agora (checklist):
+./scripts/volunteer-pipeline.sh next
+
 # 0) Neste PC (candidato?): CGNAT?
 ./scripts/volunteer-pipeline.sh cgnat-check
 
@@ -39,8 +44,8 @@ Estado persistente: [`candidatos.state.json`](candidatos.state.json) (actualizad
 
 | Nome | Contacto | ISP | IPv4 público? | IPv6 aberto? | Port-forward? | Máquina | Estado |
 |------|----------|-----|---------------|--------------|---------------|---------|--------|
-| TushiBook (Bruno) | — | Vivo CGNAT | não (WAN≠LAN) | ICMP ok / TCP drop | não | casa | **folha** — não candidato |
-| Amigo fibra | | | ? | ? | ? | PC | prospecto |
+| TushiBook (Bruno) | — | Vivo CGNAT | não (WAN≠LAN) | ICMP ok / TCP drop | não | casa | **folha** — Nostr transport |
+| Amigo fibra | | | ? | ? | ? | PC | prospecto — próximo pitch |
 | Uni / lab | | | ? | ? | ? | servidor | prospecto |
 | Familiar | | | ? | ? | ? | NAS/PC | prospecto |
 | Hackerspace | | | ? | ? | ? | rack | prospecto |
@@ -49,4 +54,4 @@ Estado persistente: [`candidatos.state.json`](candidatos.state.json) (actualizad
 
 Só o passo **enviar a mensagem** e o voluntário **abrir a porta no router**. O resto (prova, seed, mainnet, attach da folha, matriz) está no pipeline.
 
-Pitch: [`pitch_voluntario.txt`](pitch_voluntario.txt) · Ops: [`volunteer-sporocarp.md`](volunteer-sporocarp.md) · Demo Nostr: `./scripts/hybrid-demo.sh`
+Pitch: [`pitch_voluntario.txt`](pitch_voluntario.txt) · Ops: [`volunteer-sporocarp.md`](volunteer-sporocarp.md) · Nostr mesh: [`nostr-transport.md`](nostr-transport.md) · Demo hybrid: `./scripts/hybrid-demo.sh`

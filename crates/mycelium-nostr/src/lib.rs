@@ -9,11 +9,12 @@ mod relay_pool;
 mod shard_event;
 
 pub use candidate_relay::{
-    build_backchannel_event, candidate_sleep_secs, recv_backchannel, run_candidate_round,
+    announce_and_discover_session, announce_session, build_backchannel_event, candidate_sleep_secs,
+    discover_relay_pool, filter_fresh_peers, recv_backchannel, run_candidate_round,
     run_listen_round, send_backchannel, BackchannelMessage, CandidatePeer, CandidateRelay,
-    CandidateRoundReport, CandidateSession, CandidateState, CANDIDATE_INTERVAL_SECS,
-    CANDIDATE_TTL_SECS, KIND_QEL_BACKCHANNEL, KIND_QEL_CANDIDATE, KIND_QEL_PRESENCE,
-    SESSION_TTL_SECS,
+    CandidateRoundReport, CandidateSession, CandidateState, DiscoveredPeer,
+    CANDIDATE_INTERVAL_SECS, CANDIDATE_TTL_SECS, KIND_QEL_BACKCHANNEL, KIND_QEL_CANDIDATE,
+    KIND_QEL_PRESENCE, SESSION_TTL_SECS,
 };
 pub use nip94::{announce_plot, seal_event, NostrEvent};
 pub use relay_pool::{RelayPool, PUBLIC_RELAYS};

@@ -80,10 +80,13 @@ enum Commands {
         /// Porta UDP webrtc-direct.
         #[arg(long = "webrtc-port", default_value_t = 4002)]
         webrtc_port: u16,
-        /// Transporte libp2p sobre Nostr (requer `--features nostr-transport`).
+        /// Transporte libp2p sobre Nostr (força ON). Sem flag: auto em folha/floresta.
         #[arg(long = "nostr-transport", env = "MYCELIUM_NOSTR_TRANSPORT")]
         nostr_transport: bool,
-        /// Relay Nostr WSS para o transporte (default damus).
+        /// Desliga Nostr transport (mesmo em folha/floresta).
+        #[arg(long = "no-nostr-transport", conflicts_with = "nostr_transport")]
+        no_nostr_transport: bool,
+        /// Relay Nostr WSS para o transporte (default nos.lol).
         #[arg(long = "nostr-relay", env = "MYCELIUM_NOSTR_RELAY")]
         nostr_relay: Option<String>,
         /// Depreciado: ignorado (Política de Membrana — sem UPnP).
@@ -289,6 +292,7 @@ fn main() {
             webrtc,
             webrtc_port,
             nostr_transport,
+            no_nostr_transport,
             nostr_relay,
             upnp,
         } => rt.block_on(daemon(
@@ -311,7 +315,13 @@ fn main() {
                 assume_reachable,
                 enable_webrtc: webrtc,
                 webrtc_port,
-                enable_nostr_transport: nostr_transport,
+                nostr_transport: if no_nostr_transport {
+                    Some(false)
+                } else if nostr_transport {
+                    Some(true)
+                } else {
+                    None
+                },
                 nostr_relay,
             },
             upnp,

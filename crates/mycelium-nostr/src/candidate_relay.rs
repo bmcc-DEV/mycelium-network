@@ -262,20 +262,152 @@ pub struct CandidateRoundReport {
     pub peers: Vec<String>,
 }
 
+/// Peer fresco descoberto via kind 39401 (após filtro de stale).
+#[derive(Debug, Clone)]
+pub struct DiscoveredPeer {
+    pub ghost_id: String,
+    pub relay_url: String,
+    pub expires_at: u64,
+    /// Anúncio de listen estável (`d` = `listen:…`).
+    pub is_listen: bool,
+}
+
+/// Filtra anúncios: ignora self, expirados, e eventos sem `expires` válido.
+pub fn filter_fresh_peers(
+    events: &[NostrEvent],
+    self_pk: &str,
+    now: u64,
+    default_relay: &str,
+) -> Vec<DiscoveredPeer> {
+    let mut out: Vec<DiscoveredPeer> = Vec::new();
+    for ev in events {
+        if ev.kind != KIND_QEL_CANDIDATE {
+            continue;
+        }
+        if ev.pubkey == self_pk {
+            continue;
+        }
+        let expires = extract_tag(&ev.tags, "expires")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        if expires <= now {
+            continue;
+        }
+        // Descartar eventos criados há mais do que 2× TTL (stale em cache do relay).
+        if ev.created_at + CANDIDATE_TTL_SECS * 2 < now {
+            continue;
+        }
+        let d = extract_tag(&ev.tags, "d").unwrap_or("");
+        let is_listen = d.starts_with("listen:");
+        let relay_url = extract_tag(&ev.tags, "qel-backchannel")
+            .unwrap_or(default_relay)
+            .to_string();
+        if out.iter().any(|p| p.ghost_id == ev.pubkey) {
+            // Preferir anúncio listen sobre ephemeral.
+            if let Some(existing) = out.iter_mut().find(|p| p.ghost_id == ev.pubkey) {
+                if is_listen && !existing.is_listen {
+                    existing.is_listen = true;
+                    existing.expires_at = expires;
+                    existing.relay_url = relay_url;
+                } else if expires > existing.expires_at {
+                    existing.expires_at = expires;
+                }
+            }
+            continue;
+        }
+        out.push(DiscoveredPeer {
+            ghost_id: ev.pubkey.clone(),
+            relay_url,
+            expires_at: expires,
+            is_listen,
+        });
+    }
+    out.sort_by(|a, b| {
+        b.is_listen
+            .cmp(&a.is_listen)
+            .then_with(|| b.expires_at.cmp(&a.expires_at))
+    });
+    out
+}
+
+/// Anuncia a sessão estável (mesmo ghost do listen Nostr transport).
+pub async fn announce_session(
+    pool: &RelayPool,
+    ghost: &GhostId,
+    relay_url: &str,
+) -> Result<usize, NostrError> {
+    let expires = now_secs() + CANDIDATE_TTL_SECS;
+    let tags = vec![
+        vec!["qel".into(), "candidate-relay".into()],
+        vec!["qel-ghost".into(), ghost.nostr_pubkey_hex()],
+        vec!["expires".into(), expires.to_string()],
+        vec!["qel-backchannel".into(), relay_url.to_string()],
+        vec!["qel-transports".into(), "nostr-ws".into()],
+        vec![
+            "d".into(),
+            format!("listen:{}", ghost.nostr_pubkey_hex()),
+        ],
+    ];
+    let content = json!({
+        "type": "candidate-relay",
+        "version": 1,
+        "capacity_bytes": 4096,
+        "ecdh_public": ghost.nostr_pubkey_hex(),
+    })
+    .to_string();
+    let ann = seal_event(ghost, now_secs(), KIND_QEL_CANDIDATE, tags, content)?;
+    Ok(pool.publish(&ann).await.unwrap_or(0))
+}
+
+/// Pool: relay primário + públicos (sem duplicar).
+pub fn discover_relay_pool(primary: &str) -> RelayPool {
+    let mut relays = vec![primary.to_string()];
+    for r in crate::relay_pool::PUBLIC_RELAYS {
+        if *r != primary {
+            relays.push((*r).to_string());
+        }
+    }
+    RelayPool::new(relays)
+        .with_timeout(std::time::Duration::from_secs(6))
+        .with_min_relays(1)
+}
+
+/// Re-anuncia sessão + descobre peers frescos (para Nostr transport).
+pub async fn announce_and_discover_session(
+    home: &std::path::Path,
+    primary_relay: &str,
+) -> Result<(String, Vec<DiscoveredPeer>), NostrError> {
+    let (_, ghost) = CandidateSession::load_or_create(home)?;
+    let self_pk = ghost.nostr_pubkey_hex();
+    let pool = discover_relay_pool(primary_relay);
+    let published = announce_session(&pool, &ghost, primary_relay).await?;
+    tracing::debug!(published, ghost = %self_pk, "candidate session re-announce");
+
+    let since = now_secs().saturating_sub(CANDIDATE_TTL_SECS);
+    let filter = json!({
+        "kinds": [KIND_QEL_CANDIDATE],
+        "since": since,
+        "limit": 50
+    });
+    let events = pool.subscribe(filter).await?;
+    let peers = filter_fresh_peers(&events, &self_pk, now_secs(), primary_relay);
+    Ok((self_pk, peers))
+}
+
 /// Uma ronda: rotate → announce → subscribe kind 39401 → process → handshake.
 pub async fn run_candidate_round(pool: &RelayPool) -> Result<CandidateRoundReport, NostrError> {
     let relay_url = pool
         .relays()
         .first()
         .cloned()
-        .unwrap_or_else(|| "wss://relay.damus.io".into());
+        .unwrap_or_else(|| "wss://nos.lol".into());
     let mut engine = CandidateRelay::new(&relay_url)?;
     engine.rotate_ghost()?;
 
     let ann = engine.build_announcement()?;
     let published = pool.publish(&ann).await.unwrap_or(0);
 
-    let since = now_secs().saturating_sub(600);
+    let since = now_secs().saturating_sub(CANDIDATE_TTL_SECS);
     let filter = json!({
         "kinds": [KIND_QEL_CANDIDATE],
         "since": since,
@@ -591,5 +723,46 @@ mod tests {
         assert_eq!(g1.nostr_pubkey_hex(), g2.nostr_pubkey_hex());
         CandidateSession::clear(&dir).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn filter_drops_stale_and_self() {
+        let now = now_secs();
+        let self_pk = "aa".repeat(32);
+        let fresh = NostrEvent {
+            id: "11".repeat(32),
+            pubkey: "bb".repeat(32),
+            created_at: now - 30,
+            kind: KIND_QEL_CANDIDATE,
+            tags: vec![
+                vec!["expires".into(), (now + 200).to_string()],
+                vec!["d".into(), "listen:bb".into()],
+                vec!["qel-backchannel".into(), "wss://nos.lol".into()],
+            ],
+            content: "{}".into(),
+            sig: "22".repeat(64),
+        };
+        let stale = NostrEvent {
+            id: "33".repeat(32),
+            pubkey: "cc".repeat(32),
+            created_at: now - CANDIDATE_TTL_SECS * 3,
+            kind: KIND_QEL_CANDIDATE,
+            tags: vec![vec!["expires".into(), (now - 10).to_string()]],
+            content: "{}".into(),
+            sig: "44".repeat(64),
+        };
+        let self_ev = NostrEvent {
+            id: "55".repeat(32),
+            pubkey: self_pk.clone(),
+            created_at: now,
+            kind: KIND_QEL_CANDIDATE,
+            tags: vec![vec!["expires".into(), (now + 100).to_string()]],
+            content: "{}".into(),
+            sig: "66".repeat(64),
+        };
+        let peers = filter_fresh_peers(&[fresh, stale, self_ev], &self_pk, now, "wss://nos.lol");
+        assert_eq!(peers.len(), 1);
+        assert!(peers[0].is_listen);
+        assert_eq!(peers[0].ghost_id, "bb".repeat(32));
     }
 }

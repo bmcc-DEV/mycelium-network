@@ -1,10 +1,31 @@
 {
-  "updated": "2026-07-21T12:00Z",
+  "updated": "2026-07-22T11:00Z",
   "candidatos": [
     {
       "nome": "TushiBook (Bruno)",
-      "estado": "folha — não candidato (Vivo CGNAT)",
-      "updated": "2026-07-21"
+      "estado": "folha — CGNAT Vivo; mesh via nostr-transport (auto floresta)",
+      "updated": "2026-07-22"
+    },
+    {
+      "nome": "Amigo fibra",
+      "estado": "prospecto — aguarda pitch + port-forward",
+      "updated": "2026-07-22"
+    },
+    {
+      "nome": "Uni / lab",
+      "estado": "prospecto",
+      "updated": "2026-07-22"
+    },
+    {
+      "nome": "Familiar",
+      "estado": "prospecto",
+      "updated": "2026-07-22"
+    },
+    {
+      "nome": "Hackerspace",
+      "estado": "prospecto",
+      "updated": "2026-07-22"
     }
-  ]
+  ],
+  "proximo": "pitch \"Amigo fibra\" → voluntário abre porta → probe 5G → onboard → folha-attach"
 }

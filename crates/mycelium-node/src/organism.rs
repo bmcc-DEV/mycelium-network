@@ -72,8 +72,9 @@ pub struct OrganismConfig {
     /// Escuta webrtc-direct (build com `--features webrtc`).
     pub enable_webrtc: bool,
     pub webrtc_port: u16,
-    /// Transporte libp2p sobre Nostr (`--nostr-transport`).
-    pub enable_nostr_transport: bool,
+    /// Transporte libp2p sobre Nostr.
+    /// `None` = auto (folha/floresta); `Some(true/false)` = forçar.
+    pub nostr_transport: Option<bool>,
     pub nostr_relay: Option<String>,
 }
 
@@ -111,7 +112,7 @@ pub struct Organism {
     enable_nostr_transport: bool,
     nostr_relay: String,
     #[cfg(feature = "nostr-transport")]
-    nostr_dialed: HashSet<String>,
+    nostr_dialed: HashMap<String, std::time::Instant>,
 }
 
 impl Organism {
@@ -208,6 +209,18 @@ impl Organism {
             announce_ip = announce_ip.as_deref().unwrap_or("-"),
             "membrana diagnosticada"
         );
+        // Folha/Floresta: Nostr transport por default (CGNAT / IPv6 sem inbound).
+        // Raiz/Esporocarp: opt-in. `--no-nostr-transport` / `Some(false)` desliga.
+        #[cfg(feature = "nostr-transport")]
+        let enable_nostr_transport = match config.nostr_transport {
+            Some(v) => v,
+            None => matches!(membrane, Membrane::Folha | Membrane::Floresta),
+        };
+        #[cfg(not(feature = "nostr-transport"))]
+        let enable_nostr_transport = false;
+        if enable_nostr_transport {
+            tracing::info!(%membrane, "nostr-transport activo (folha/floresta auto ou --nostr-transport)");
+        }
         let mut hyphae = HyphaeNode::germinate_with(HyphaeConfig {
             seed: Some(gland.seed()),
             listen,
@@ -222,7 +235,7 @@ impl Organism {
             assume_reachable,
             enable_webrtc: config.enable_webrtc,
             webrtc_port: config.webrtc_port,
-            enable_nostr_transport: config.enable_nostr_transport,
+            enable_nostr_transport,
             nostr_home: Some(config.home.clone()),
             nostr_relay: config.nostr_relay.clone(),
         })?;
@@ -278,12 +291,12 @@ impl Organism {
             assume_reachable,
             physarum: PhysarumNetwork::new(4, 0.1, 0.01),
             physarum_phase: MyceliumPhase::Exploratory,
-            enable_nostr_transport: config.enable_nostr_transport,
+            enable_nostr_transport,
             nostr_relay: config
                 .nostr_relay
                 .unwrap_or_else(|| "wss://nos.lol".into()),
             #[cfg(feature = "nostr-transport")]
-            nostr_dialed: HashSet::new(),
+            nostr_dialed: HashMap::new(),
         };
 
         for rec in records {

@@ -38,20 +38,21 @@ Helpers: `encode_nostr_multiaddr` / `parse_nostr_multiaddr` / `listen_multiaddr`
 # Build (default CLI já inclui nostr-transport)
 cargo build -p mycelium-cli --release
 
-# Folha A
-MYCELIUM_HOME=/tmp/folha-a mycelium daemon --nostr-transport --no-mdns
+# Folha/Floresta: Nostr transport liga-se sozinho (auto).
+MYCELIUM_HOME=/tmp/folha-a mycelium daemon --no-mdns
 
-# Folha B (outro home)
-MYCELIUM_HOME=/tmp/folha-b mycelium daemon --nostr-transport --no-mdns
+# Forçar ON / OFF:
+mycelium daemon --nostr-transport
+mycelium daemon --no-nostr-transport
 
-# Após ~45s (tick discover) — em cada lado:
-MYCELIUM_HOME=/tmp/folha-a mycelium status
-# → vizinhos >= 1 se o dial Nostr completou Noise
+# Smoke dois homes:
+./scripts/nostr-transport-smoke.sh
 ```
 
-Env: `MYCELIUM_NOSTR_TRANSPORT=1`, `MYCELIUM_NOSTR_RELAY=wss://nos.lol`.
+Env: `MYCELIUM_NOSTR_TRANSPORT=1` (força ON), `MYCELIUM_NOSTR_RELAY=wss://nos.lol`.
 
-GhostID estável em `{home}/candidate.session` (TTL ~1h).
+GhostID estável em `{home}/candidate.session` (TTL ~1h). Re-announce a cada ~60s;
+discovery filtra peers stale e prefere anúncios `listen:`.
 
 ## Limitações (MVP)
 
@@ -65,6 +66,6 @@ GhostID estável em `{home}/candidate.session` (TTL ~1h).
 | Comando | Papel |
 |---------|--------|
 | `mycelium candidate listen/send` | chat backchannel sem Swarm |
-| `mycelium daemon --nostr-transport` | mesh libp2p (`vizinhos`) |
+| `mycelium daemon` (folha/floresta) | mesh libp2p (`vizinhos`) via Nostr |
 
 Ver [`candidate-relay.md`](candidate-relay.md).
