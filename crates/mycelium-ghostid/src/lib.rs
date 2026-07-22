@@ -132,6 +132,11 @@ impl GhostId {
         Self::spawn(collector, ttl_secs)
     }
 
+    /// Restaura GhostID a partir de 32 bytes de segredo (sessão CandidateRelay).
+    pub fn from_secret_bytes(seed: [u8; 32], ttl_secs: u64) -> Result<Self, GhostError> {
+        Self::from_seed(seed, ttl_secs)
+    }
+
     fn from_seed(seed: [u8; 32], ttl_secs: u64) -> Result<Self, GhostError> {
         let secp = Secp256k1::new();
         let secret = SecretKey::from_slice(&seed).map_err(|_| GhostError::InvalidSeed)?;

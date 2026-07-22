@@ -72,6 +72,9 @@ pub struct OrganismConfig {
     /// Escuta webrtc-direct (build com `--features webrtc`).
     pub enable_webrtc: bool,
     pub webrtc_port: u16,
+    /// Transporte libp2p sobre Nostr (`--nostr-transport`).
+    pub enable_nostr_transport: bool,
+    pub nostr_relay: Option<String>,
 }
 
 pub struct Organism {
@@ -105,6 +108,10 @@ pub struct Organism {
     /// Rede Physarum (tick periódico no loop RSA leve).
     physarum: PhysarumNetwork,
     physarum_phase: MyceliumPhase,
+    enable_nostr_transport: bool,
+    nostr_relay: String,
+    #[cfg(feature = "nostr-transport")]
+    nostr_dialed: HashSet<String>,
 }
 
 impl Organism {
@@ -215,6 +222,9 @@ impl Organism {
             assume_reachable,
             enable_webrtc: config.enable_webrtc,
             webrtc_port: config.webrtc_port,
+            enable_nostr_transport: config.enable_nostr_transport,
+            nostr_home: Some(config.home.clone()),
+            nostr_relay: config.nostr_relay.clone(),
         })?;
         hyphae.restore_metrics(state.hypha_metrics.clone());
 
@@ -268,6 +278,12 @@ impl Organism {
             assume_reachable,
             physarum: PhysarumNetwork::new(4, 0.1, 0.01),
             physarum_phase: MyceliumPhase::Exploratory,
+            enable_nostr_transport: config.enable_nostr_transport,
+            nostr_relay: config
+                .nostr_relay
+                .unwrap_or_else(|| "wss://nos.lol".into()),
+            #[cfg(feature = "nostr-transport")]
+            nostr_dialed: HashSet::new(),
         };
 
         for rec in records {
@@ -1129,9 +1145,23 @@ impl Organism {
             format!("127.0.0.1:{}", self.state.horizon_port)
                 .parse()
                 .map_err(|e| OrganismError::Msg(format!("{e}")))?;
-        let handle = serve_horizon(bind, self.horizon.clone())
-            .await
-            .map_err(OrganismError::Msg)?;
+        let handle = match serve_horizon(bind, self.horizon.clone()).await {
+            Ok(h) => h,
+            Err(e) if e.contains("Address already in use") || e.contains("os error 98") => {
+                tracing::warn!(
+                    port = self.state.horizon_port,
+                    "Event Horizon ocupado — a usar porta efémera (127.0.0.1:0)"
+                );
+                let fallback: std::net::SocketAddr = "127.0.0.1:0"
+                    .parse()
+                    .map_err(|e| OrganismError::Msg(format!("{e}")))?;
+                serve_horizon(fallback, self.horizon.clone())
+                    .await
+                    .map_err(OrganismError::Msg)?
+            }
+            Err(e) => return Err(OrganismError::Msg(e)),
+        };
+        self.state.horizon_port = handle.bind.port();
         tracing::info!(
             url = %format!("http://{}/", handle.bind),
             "event horizon escutando — curl http://127.0.0.1:{}/<ion>/",
@@ -1151,11 +1181,13 @@ impl Organism {
         let mut seed_tick = tokio::time::interval(Duration::from_secs(120));
         let mut duckdns_tick = tokio::time::interval(Duration::from_secs(300));
         let mut physarum_tick = tokio::time::interval(Duration::from_secs(5));
+        let mut nostr_tick = tokio::time::interval(Duration::from_secs(45));
         // Primeiro tick imediato já foi coberto na germinação; atrasa o próximo.
         seed_tick.tick().await;
         // DuckDNS: espera um pouco para ter listen addrs.
         duckdns_tick.tick().await;
         physarum_tick.tick().await;
+        nostr_tick.tick().await;
 
         if self.sporocarp {
             tracing::info!("sporocarp ativo — relay + DNS (se DUCKDNS_*) — sem UPnP");
@@ -1195,6 +1227,28 @@ impl Organism {
 
                 _ = physarum_tick.tick() => {
                     self.physarum_tick(0.5);
+                }
+
+                _ = nostr_tick.tick() => {
+                    #[cfg(feature = "nostr-transport")]
+                    if self.enable_nostr_transport {
+                        let relay = self.nostr_relay.clone();
+                        match self
+                            .hyphae
+                            .nostr_discover_and_dial(&relay, &mut self.nostr_dialed)
+                            .await
+                        {
+                            Ok(n) if n > 0 => {
+                                tracing::info!(dialed = n, "nostr-transport: peers dialados")
+                            }
+                            Ok(_) => {}
+                            Err(e) => tracing::debug!(error = %e, "nostr-transport discover"),
+                        }
+                    }
+                    #[cfg(not(feature = "nostr-transport"))]
+                    {
+                        let _ = self.enable_nostr_transport;
+                    }
                 }
 
                 _ = heartbeat.tick() => {

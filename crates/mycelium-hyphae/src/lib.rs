@@ -3,7 +3,7 @@
 //! Hifas são os links vivos do micélio. Não são "conexões TCP": são
 //! relacionamentos que fortalecem com o uso e atrofiam sem ele.
 //!
-//! - **Transporte**: QUIC + TCP/Noise/Yamux + circuit relay v2 (+ WebRTC opcional)
+//! - **Transporte**: QUIC + TCP/Noise/Yamux + circuit relay v2 (+ WebRTC / Nostr opcionais)
 //! - **Descoberta**: Kademlia DHT + mDNS + seed book (HTTP + DNS TXT)
 //! - **Gossip**: tópicos de feromônios, Lattice e relay mesh
 //! - **Spore Bank**: put/get de records no DHT
@@ -96,6 +96,12 @@ pub struct HyphaeConfig {
     pub enable_webrtc: bool,
     /// Porta UDP webrtc-direct (default 4002).
     pub webrtc_port: u16,
+    /// Transporte libp2p sobre Nostr (requer `--features nostr-transport`).
+    pub enable_nostr_transport: bool,
+    /// Home para `candidate.session` (GhostID estável).
+    pub nostr_home: Option<std::path::PathBuf>,
+    /// Relay Nostr WSS (default damus).
+    pub nostr_relay: Option<String>,
 }
 
 impl Default for HyphaeConfig {
@@ -114,6 +120,9 @@ impl Default for HyphaeConfig {
             assume_reachable: false,
             enable_webrtc: false,
             webrtc_port: 4002,
+            enable_nostr_transport: false,
+            nostr_home: None,
+            nostr_relay: None,
         }
     }
 }
@@ -266,6 +275,8 @@ pub struct HyphaeNode {
     announce_ip: Option<String>,
     announce_ip6: Option<String>,
     relay_mesh: RelayMesh,
+    #[cfg(feature = "nostr-transport")]
+    nostr_home: Option<std::path::PathBuf>,
 }
 
 impl HyphaeNode {
@@ -309,6 +320,21 @@ impl HyphaeNode {
                     webrtc_ice::transport::build(key.clone()).map_err(|e| {
                         Box::<dyn std::error::Error + Send + Sync>::from(e)
                     })
+                })
+                .map_err(|e| HyphaeError::Germination(e.to_string()))?
+        };
+
+        #[cfg(feature = "nostr-transport")]
+        let builder = {
+            let home = config
+                .nostr_home
+                .clone()
+                .unwrap_or_else(|| std::path::PathBuf::from(".mycelium"));
+            tracing::info!(?home, "transporte Nostr registado (CandidateRelay)");
+            builder
+                .with_other_transport(move |key| {
+                    mycelium_nostr_transport::build(key, home.clone())
+                        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))
                 })
                 .map_err(|e| HyphaeError::Germination(e.to_string()))?
         };
@@ -433,6 +459,32 @@ impl HyphaeNode {
             }
         }
 
+        #[cfg(feature = "nostr-transport")]
+        if config.enable_nostr_transport {
+            let home = config
+                .nostr_home
+                .clone()
+                .unwrap_or_else(|| std::path::PathBuf::from(".mycelium"));
+            let relay = config
+                .nostr_relay
+                .clone()
+                .unwrap_or_else(|| mycelium_nostr_transport::DEFAULT_NOSTR_RELAY.to_string());
+            match mycelium_nostr_transport::listen_multiaddr(&home, &relay) {
+                Ok(addr) => match swarm.listen_on(addr.clone()) {
+                    Ok(_) => tracing::info!(%addr, "escutando Nostr transport"),
+                    Err(e) => tracing::warn!(%addr, "nostr listen falhou: {e}"),
+                },
+                Err(e) => tracing::warn!("nostr listen multiaddr: {e}"),
+            }
+        }
+
+        #[cfg(not(feature = "nostr-transport"))]
+        if config.enable_nostr_transport {
+            tracing::warn!(
+                "nostr-transport pedido mas build sem feature — recompile com --features nostr-transport"
+            );
+        }
+
         let mut node = Self {
             swarm,
             pheromone_topic,
@@ -448,6 +500,8 @@ impl HyphaeNode {
                 config.enable_relay_server,
                 config.assume_reachable,
             ),
+            #[cfg(feature = "nostr-transport")]
+            nostr_home: config.nostr_home.clone(),
         };
 
         // Bootstrap: IPv6 primeiro (SeedBook já ordena; reordena por segurança).
@@ -801,6 +855,53 @@ impl HyphaeNode {
         self.swarm
             .dial(addr)
             .map_err(|e| HyphaeError::Gossip(e.to_string()))
+    }
+
+    /// Dial via transporte Nostr (`/unix/mycelium-nostr/...`).
+    #[cfg(feature = "nostr-transport")]
+    pub fn reach_nostr(&mut self, relay_url: &str, ghost_hex: &str) -> Result<(), HyphaeError> {
+        let addr = mycelium_nostr_transport::encode_nostr_multiaddr(relay_url, ghost_hex);
+        tracing::info!(%addr, "dial Nostr transport");
+        self.reach(addr)
+    }
+
+    /// Descoberta CandidateRelay + dial dos peers encontrados.
+    #[cfg(feature = "nostr-transport")]
+    pub async fn nostr_discover_and_dial(
+        &mut self,
+        relay_url: &str,
+        already: &mut std::collections::HashSet<String>,
+    ) -> Result<usize, HyphaeError> {
+        use mycelium_nostr::{run_candidate_round, CandidateSession, RelayPool};
+        let self_ghost = self.nostr_home.as_ref().and_then(|home| {
+            CandidateSession::load_or_create(home)
+                .ok()
+                .map(|(_, g)| g.nostr_pubkey_hex())
+        });
+
+        let pool = RelayPool::new(vec![relay_url.to_string()]);
+        let report = run_candidate_round(&pool)
+            .await
+            .map_err(|e| HyphaeError::Gossip(e.to_string()))?;
+        let mut dialed = 0usize;
+        for peer in report.peers.into_iter().take(4) {
+            if already.contains(&peer) {
+                continue;
+            }
+            if self_ghost.as_ref() == Some(&peer) {
+                already.insert(peer);
+                continue;
+            }
+            match self.reach_nostr(relay_url, &peer) {
+                Ok(()) => {
+                    tracing::info!(%peer, "nostr dial enfileirado");
+                    already.insert(peer);
+                    dialed += 1;
+                }
+                Err(e) => tracing::warn!(error = %e, %peer, "reach_nostr falhou"),
+            }
+        }
+        Ok(dialed)
     }
 
     /// Deposita um record no DHT (Spore Bank).

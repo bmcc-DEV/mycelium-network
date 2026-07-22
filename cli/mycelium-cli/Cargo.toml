@@ -28,7 +28,7 @@ hex = { workspace = true }
 blake3 = { workspace = true }
 
 [features]
-default = ["nostr"]
+default = ["nostr", "nostr-transport"]
 webrtc = ["mycelium-node/webrtc", "mycelium-hyphae/webrtc"]
 nostr = [
     "dep:mycelium-ghostid",
@@ -38,6 +38,7 @@ nostr = [
     "dep:mycelium-distancebridge",
     "mycelium-node/nostr",
 ]
+nostr-transport = ["mycelium-node/nostr-transport", "mycelium-hyphae/nostr-transport"]
 
 [dependencies.mycelium-ghostid]
 workspace = true

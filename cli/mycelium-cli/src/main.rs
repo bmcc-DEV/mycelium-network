@@ -80,6 +80,12 @@ enum Commands {
         /// Porta UDP webrtc-direct.
         #[arg(long = "webrtc-port", default_value_t = 4002)]
         webrtc_port: u16,
+        /// Transporte libp2p sobre Nostr (requer `--features nostr-transport`).
+        #[arg(long = "nostr-transport", env = "MYCELIUM_NOSTR_TRANSPORT")]
+        nostr_transport: bool,
+        /// Relay Nostr WSS para o transporte (default damus).
+        #[arg(long = "nostr-relay", env = "MYCELIUM_NOSTR_RELAY")]
+        nostr_relay: Option<String>,
         /// Depreciado: ignorado (Política de Membrana — sem UPnP).
         #[arg(long = "upnp")]
         upnp: bool,
@@ -182,6 +188,20 @@ enum Commands {
         timeout: u64,
     },
     Shutdown,
+    /// CandidateRelay (kind 39401/39406): descoberta + backchannel CGNAT↔CGNAT.
+    Candidate {
+        #[command(subcommand)]
+        cmd: Option<CandidateCmd>,
+        /// Repetir com jitter 30–300s (só em discover sem subcomando).
+        #[arg(long)]
+        r#loop: bool,
+        /// Uma ronda e sai (default se sem --loop).
+        #[arg(long)]
+        once: bool,
+        /// Relays wss:// (repetível). Default = pool público.
+        #[arg(long = "relay")]
+        relays: Vec<String>,
+    },
     #[command(hide = true)]
     ChamberServe {
         #[arg(long)]
@@ -191,6 +211,26 @@ enum Commands {
         #[arg(long)]
         root: PathBuf,
     },
+}
+
+#[derive(Subcommand)]
+enum CandidateCmd {
+    /// Escuta mensagens backchannel (NIP-44, kind 39406) e re-anuncia presença.
+    Listen {
+        #[arg(long)]
+        r#loop: bool,
+    },
+    /// Envia texto cifrado a um ghost peer (`--to` = pubkey hex 64 chars).
+    Send {
+        #[arg(long)]
+        to: String,
+        #[arg(short = 'm', long)]
+        message: String,
+    },
+    /// Mostra o GhostID da sessão local (para o outro lado usar em `--to`).
+    Whoami,
+    /// Apaga `candidate.session` (novo GhostID na próxima vez).
+    Reset,
 }
 
 #[derive(Subcommand)]
@@ -248,6 +288,8 @@ fn main() {
             assume_reachable,
             webrtc,
             webrtc_port,
+            nostr_transport,
+            nostr_relay,
             upnp,
         } => rt.block_on(daemon(
             &home,
@@ -269,6 +311,8 @@ fn main() {
                 assume_reachable,
                 enable_webrtc: webrtc,
                 webrtc_port,
+                enable_nostr_transport: nostr_transport,
+                nostr_relay,
             },
             upnp,
         )),
@@ -341,6 +385,12 @@ fn main() {
             },
         )),
         Commands::Shutdown => rt.block_on(rpc(&home, Request::Shutdown)),
+        Commands::Candidate {
+            cmd,
+            r#loop,
+            once: _,
+            relays,
+        } => rt.block_on(candidate_cmd(&home, cmd, r#loop, relays)),
         Commands::ChamberServe { port, ion, root } => {
             rt.block_on(chamber_serve(port, ion, root))
         }
@@ -538,6 +588,143 @@ async fn status(home: &PathBuf) -> Result<(), String> {
         ledger.balance(mycelium_core::Nutrient::Resilience),
     );
     Ok(())
+}
+
+async fn candidate_cmd(
+    home: &PathBuf,
+    cmd: Option<CandidateCmd>,
+    do_loop: bool,
+    relays: Vec<String>,
+) -> Result<(), String> {
+    #[cfg(not(feature = "nostr"))]
+    {
+        let _ = (home, cmd, do_loop, relays);
+        return Err(
+            "`mycelium candidate` requer `cargo build -p mycelium-cli --features nostr`".into(),
+        );
+    }
+    #[cfg(feature = "nostr")]
+    {
+        use mycelium_nostr::{
+            candidate_sleep_secs, run_candidate_round, run_listen_round, send_backchannel,
+            CandidateSession, RelayPool,
+        };
+        use std::collections::HashSet;
+
+        let pool = if relays.is_empty() {
+            RelayPool::default_public()
+        } else {
+            RelayPool::new(relays)
+        };
+
+        match cmd {
+            None => {
+                loop {
+                    match run_candidate_round(&pool).await {
+                        Ok(r) => {
+                            println!(
+                                "[🍄] candidate: published={} discovered={} peers={} ghost={}…",
+                                r.published,
+                                r.discovered,
+                                r.peer_count,
+                                &r.self_ghost[..r.self_ghost.len().min(12)]
+                            );
+                            for p in &r.peers {
+                                println!("  peer {}", p);
+                            }
+                            if r.peer_count == 0 {
+                                println!(
+                                    "[🍄] candidate: ainda 0 peers (ponto fixo). Outra folha no mesmo relay?"
+                                );
+                            } else {
+                                println!(
+                                    "[🍄] candidate: peers vistos — use `listen`/`send` para backchannel"
+                                );
+                            }
+                        }
+                        Err(e) => eprintln!("[🍄] candidate round falhou: {e}"),
+                    }
+                    if !do_loop {
+                        break;
+                    }
+                    let sleep = candidate_sleep_secs();
+                    println!("[🍄] candidate: próxima ronda em {sleep}s (jitter)");
+                    tokio::time::sleep(std::time::Duration::from_secs(sleep)).await;
+                }
+                Ok(())
+            }
+            Some(CandidateCmd::Whoami) => {
+                let (sess, _) = CandidateSession::load_or_create(home).map_err(|e| e.to_string())?;
+                println!("[🍄] candidate ghost: {}", sess.pk_hex);
+                println!("    sessão: {}", CandidateSession::path(home).display());
+                println!("    TTL restante ~{}s (desde criação)", {
+                    let age = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0)
+                        .saturating_sub(sess.created_at);
+                    sess.ttl_secs.saturating_sub(age)
+                });
+                Ok(())
+            }
+            Some(CandidateCmd::Reset) => {
+                CandidateSession::clear(home).map_err(|e| e.to_string())?;
+                println!("[🍄] candidate.session apagada");
+                Ok(())
+            }
+            Some(CandidateCmd::Send { to, message }) => {
+                let to = to.trim().to_lowercase();
+                let (_, ghost) =
+                    CandidateSession::load_or_create(home).map_err(|e| e.to_string())?;
+                println!(
+                    "[🍄] candidate send: from={}… → to={}…",
+                    &ghost.nostr_pubkey_hex()[..12],
+                    &to[..to.len().min(12)]
+                );
+                let id = send_backchannel(&pool, &ghost, &to, &message)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                println!("[🍄] enviado event {id}");
+                println!(
+                    "[🍄] o destinatário precisa de `mycelium candidate listen` com esse ghost"
+                );
+                Ok(())
+            }
+            Some(CandidateCmd::Listen { r#loop: listen_loop }) => {
+                let (sess, ghost) =
+                    CandidateSession::load_or_create(home).map_err(|e| e.to_string())?;
+                println!("[🍄] candidate listen ghost: {}", sess.pk_hex);
+                println!("[🍄] o outro lado: mycelium candidate send --to {} -m \"…\"", sess.pk_hex);
+                let mut seen = HashSet::new();
+                loop {
+                    match run_listen_round(&pool, &ghost).await {
+                        Ok((published, msgs)) => {
+                            println!(
+                                "[🍄] listen: announced={published} inbox={}",
+                                msgs.len()
+                            );
+                            for m in msgs {
+                                if seen.insert(m.event_id.clone()) {
+                                    println!(
+                                        "[🍄] ← {}… : {}",
+                                        &m.from[..m.from.len().min(12)],
+                                        m.text
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("[🍄] listen round falhou: {e}"),
+                    }
+                    if !listen_loop {
+                        break;
+                    }
+                    let sleep = 15u64;
+                    tokio::time::sleep(std::time::Duration::from_secs(sleep)).await;
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 async fn sow_cmd(

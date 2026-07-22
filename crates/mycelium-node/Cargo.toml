@@ -38,3 +38,4 @@ default = []
 webrtc = ["mycelium-hyphae/webrtc"]
 # Mantido para a CLI activar a mesma feature flag; publish Nostr corre no CLI.
 nostr = []
+nostr-transport = ["mycelium-hyphae/nostr-transport"]

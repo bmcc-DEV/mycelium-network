@@ -2706,6 +2706,8 @@ dependencies = [
  "libp2p",
  "libp2p-webrtc",
  "mycelium-core",
+ "mycelium-nostr",
+ "mycelium-nostr-transport",
  "rand 0.8.7",
  "reqwest",
  "serde",
@@ -2773,6 +2775,29 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "mycelium-nostr-transport"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "futures-util",
+ "hex",
+ "libp2p",
+ "mycelium-ghostid",
+ "mycelium-nostr",
+ "pin-project",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

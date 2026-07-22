@@ -1,8 +1,41 @@
 # Candidatos a esporocarpo voluntário
 
-Critério verde: IP público real + `probe-sporocarp.sh` → `"tcp":"ok"` + `verify-sporocarp.sh` exit 0.
+Critério verde: IP público real + probe TCP ok + verify exit 0.
 
-**Hybrid Theory:** enquanto a tabela não tem verde, a folha CGNAT já semeia via Nostr+QEL (`mycelium sow --hybrid`). O voluntário desbloqueia **mesh live** (circuit relay), não o mailbox.
+**Hybrid Theory:** sem verde, a folha já semeia via `mycelium sow --hybrid`. O voluntário desbloqueia **mesh live**.
+
+## Pipeline automático (usa isto)
+
+```bash
+# 0) Neste PC (candidato?): CGNAT?
+./scripts/volunteer-pipeline.sh cgnat-check
+
+# 1) Outreach — pitch no clipboard + marca estado
+./scripts/volunteer-pipeline.sh pitch "Amigo fibra"
+
+# 2) No VOLUNTÁRIO (depois do port-forward): abre listen para o probe
+./scripts/volunteer-pipeline.sh prep-listen
+
+# 3) No telemóvel 5G:
+./scripts/volunteer-pipeline.sh probe <IP_PUBLICO>
+# → gera proof.json
+
+# 4) No PC do VOLUNTÁRIO (com proof.json):
+./scripts/volunteer-pipeline.sh onboard proof.json
+# → verify + seed + export → seeds/mainnet.txt
+
+# 5) Na FOLHA (Bruno / TushiBook):
+./scripts/volunteer-pipeline.sh folha-attach '/ip4/…/tcp/4001/p2p/…/esporocarp'
+# → seed book + restart + espera vizinhos>=1
+
+# Estado
+./scripts/volunteer-pipeline.sh status
+./scripts/volunteer-pipeline.sh mark "Amigo fibra" "verde"
+```
+
+Estado persistente: [`candidatos.state.json`](candidatos.state.json) (actualizado por `pitch` / `mark`).
+
+## Tabela (manual / referência)
 
 | Nome | Contacto | ISP | IPv4 público? | IPv6 aberto? | Port-forward? | Máquina | Estado |
 |------|----------|-----|---------------|--------------|---------------|---------|--------|
@@ -12,29 +45,8 @@ Critério verde: IP público real + `probe-sporocarp.sh` → `"tcp":"ok"` + `ver
 | Familiar | | | ? | ? | ? | NAS/PC | prospecto |
 | Hackerspace | | | ? | ? | ? | rack | prospecto |
 
-## Checklist operacional (pista A)
+## O que ainda é humano
 
-### Agora (outreach)
+Só o passo **enviar a mensagem** e o voluntário **abrir a porta no router**. O resto (prova, seed, mainnet, attach da folha, matriz) está no pipeline.
 
-1. [ ] Preencher **3–5 linhas** na tabela com nome + contacto real (não deixar só “Amigo fibra”).
-2. [ ] Copiar [`pitch_voluntario.txt`](pitch_voluntario.txt) → WhatsApp / email / Signal (uma mensagem por prospecto).
-3. [ ] Anotar data do envio na coluna Estado (`contacto enviado YYYY-MM-DD`).
-
-### Quando responderem “sim”
-
-4. [ ] WAN do router vs `curl ifconfig.me` — se diferente → CGNAT (marcar e passar ao próximo).
-5. [ ] Se WAN == público → port-forward TCP(+UDP) **4001** → PC do voluntário.
-6. [ ] Eles sobem listen; tu no **5G**:
-   `./scripts/probe-sporocarp.sh <IP> 4001 telemovel-5g > proof.json`
-7. [ ] Eles: `./scripts/verify-sporocarp.sh 4001 proof.json` →
-   `MYCELIUM_REACHABLE=1 ./scripts/run-public-seed.sh`
-8. [ ] Tu (folha): `./scripts/run-folha.sh` com bootstrap `…/esporocarp` → **`vizinhos >= 1`**.
-9. [ ] Registar resultado em [`matriz_transporte_nat.md`](matriz_transporte_nat.md).
-
-## Multiaddr canónico (quando verde)
-
-```text
-# /dns4/….duckdns.org/tcp/4001/p2p/PEERID/esporocarp
-```
-
-Pitch: [`pitch_voluntario.txt`](pitch_voluntario.txt) · Hybrid: [`nostr-qel.md`](nostr-qel.md) · Demo: `./scripts/hybrid-demo.sh`
+Pitch: [`pitch_voluntario.txt`](pitch_voluntario.txt) · Ops: [`volunteer-sporocarp.md`](volunteer-sporocarp.md) · Demo Nostr: `./scripts/hybrid-demo.sh`

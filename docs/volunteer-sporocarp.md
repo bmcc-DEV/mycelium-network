@@ -84,3 +84,6 @@ Sem `--hybrid`, sow/recall locais (LAN / mesh) continuam a funcionar quando há 
 - Não meter `MYCELIUM_CONTROL_TOKEN` no seedbook  
 
 Pitch: [`pitch_voluntario.txt`](pitch_voluntario.txt) · Lista: [`candidatos.md`](candidatos.md)
+
+**Pipeline automático:** [`../scripts/volunteer-pipeline.sh`](../scripts/volunteer-pipeline.sh)
+(`cgnat-check` → `pitch` → `prep-listen` → `probe` → `onboard` → `folha-attach`).

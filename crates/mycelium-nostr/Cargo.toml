@@ -1,6 +1,6 @@
 [package]
 name = "mycelium-nostr"
-description = "Transporte Nostr: RelayPool wss://, NIP-94, shards QEL kind 31234"
+description = "Transporte Nostr: RelayPool wss://, NIP-94, shards QEL 31234, CandidateRelay 39401"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

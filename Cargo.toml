@@ -10,6 +10,7 @@ members = [
     "crates/mycelium-ghostid",
     "crates/mycelium-qel",
     "crates/mycelium-nostr",
+    "crates/mycelium-nostr-transport",
     "crates/mycelium-ipfs",
     "crates/mycelium-tropical",
     "crates/mycelium-pqc",
@@ -42,6 +43,7 @@ mycelium-node = { path = "crates/mycelium-node" }
 mycelium-ghostid = { path = "crates/mycelium-ghostid" }
 mycelium-qel = { path = "crates/mycelium-qel" }
 mycelium-nostr = { path = "crates/mycelium-nostr" }
+mycelium-nostr-transport = { path = "crates/mycelium-nostr-transport" }
 mycelium-ipfs = { path = "crates/mycelium-ipfs" }
 mycelium-tropical = { path = "crates/mycelium-tropical" }
 mycelium-pqc = { path = "crates/mycelium-pqc" }

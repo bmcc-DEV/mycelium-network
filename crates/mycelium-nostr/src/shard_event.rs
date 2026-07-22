@@ -60,7 +60,8 @@ pub fn create_shard_event(
     seal_event(ghost, created_at, KIND_QEL_SHARD, tags, content)
 }
 
-fn encrypt_nip44(ghost: &GhostId, recipient_hex: &str, plaintext: &str) -> Result<String, NostrError> {
+/// NIP-44 encrypt (pubkey x-only hex do destinatário).
+pub fn encrypt_nip44(ghost: &GhostId, recipient_hex: &str, plaintext: &str) -> Result<String, NostrError> {
     let sk_bytes = ghost.secret_key_bytes();
     let sk = SecretKey::from_slice(&sk_bytes).map_err(|e| NostrError::Nip44(e.to_string()))?;
     let recip_bytes =
@@ -76,6 +77,24 @@ fn encrypt_nip44(ghost: &GhostId, recipient_hex: &str, plaintext: &str) -> Resul
     nip44::encrypt(&convo, plaintext).map_err(|e| NostrError::Nip44(e.to_string()))
 }
 
+/// Decifra content NIP-44 para string (ou devolve plaintext se já for texto/JSON).
+pub fn decrypt_nip44_to_string(
+    recipient_secret: &[u8; 32],
+    sender_pubkey_hex: &str,
+    content: &str,
+) -> Result<String, NostrError> {
+    if content.trim_start().starts_with('{') {
+        return Ok(content.to_string());
+    }
+    let sk = SecretKey::from_slice(recipient_secret).map_err(|e| NostrError::Nip44(e.to_string()))?;
+    let sender_bytes =
+        hex::decode(sender_pubkey_hex).map_err(|e| NostrError::InvalidHex(e.to_string()))?;
+    let xonly = XOnlyPublicKey::from_slice(&sender_bytes)
+        .map_err(|e| NostrError::Nip44(e.to_string()))?;
+    let convo = nip44::get_conversation_key(sk, xonly);
+    nip44::decrypt(&convo, content).map_err(|e| NostrError::Nip44(e.to_string()))
+}
+
 /// Decifra content NIP-44 (ou passa plaintext JSON).
 pub fn decrypt_shard_content(
     recipient_secret: Option<&[u8; 32]>,
@@ -85,13 +104,7 @@ pub fn decrypt_shard_content(
     let json_str = if content.trim_start().starts_with('{') {
         content.to_string()
     } else if let Some(sec) = recipient_secret {
-        let sk = SecretKey::from_slice(sec).map_err(|e| NostrError::Nip44(e.to_string()))?;
-        let sender_bytes =
-            hex::decode(sender_pubkey_hex).map_err(|e| NostrError::InvalidHex(e.to_string()))?;
-        let xonly = XOnlyPublicKey::from_slice(&sender_bytes)
-            .map_err(|e| NostrError::Nip44(e.to_string()))?;
-        let convo = nip44::get_conversation_key(sk, xonly);
-        nip44::decrypt(&convo, content).map_err(|e| NostrError::Nip44(e.to_string()))?
+        decrypt_nip44_to_string(sec, sender_pubkey_hex, content)?
     } else {
         return Err(NostrError::Msg(
             "conteúdo cifrado sem chave do destinatário".into(),

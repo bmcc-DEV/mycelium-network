@@ -101,14 +101,19 @@ Integração contra relays reais: usar `mycelium sow --hybrid` com rede; CI não
 | 8–9 | LoRa / SMS drivers | só doc |
 | 10 | Demo ponta a ponta multi-path | só doc |
 | daemon-rsa | Loop Godunov no organism | só doc |
+| candidate | CandidateRelay kind 39401 | ✅ CLI `mycelium candidate` |
 
 Ponte ET-COSMIC: [`et-cosmic-bridge.md`](et-cosmic-bridge.md).
 
 ## Matriz vs esporocarpo
 
-| Necessidade | Nostr QEL / hybrid | Esporocarpo voluntário |
-|-------------|--------------------|-------------------------|
-| Sow/recall pequeno atrás de CGNAT | Sim | Não necessário |
-| Circuit relay NAT↔NAT live | Não | Sim |
-| Horizon / chambers remotos | Não | Sim (mesh) |
-| Proof `MYCELIUM_REACHABLE` | Não | Obrigatório |
+| Necessidade | Nostr QEL / hybrid | CandidateRelay 39401 | Esporocarpo voluntário |
+|-------------|--------------------|----------------------|-------------------------|
+| Sow/recall pequeno atrás de CGNAT | Sim | — | Não necessário |
+| Descoberta CGNAT↔CGNAT | — | Sim | Circuit via relay |
+| Circuit relay NAT↔NAT live | Não | Não (só backchannel) | Sim |
+| Horizon / chambers remotos | Não | Não | Sim (mesh) |
+| Proof `MYCELIUM_REACHABLE` | Não | Não | Obrigatório |
+
+CandidateRelay: [`candidate-relay.md`](candidate-relay.md).
+

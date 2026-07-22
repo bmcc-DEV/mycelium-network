@@ -2,6 +2,11 @@
 
 ```text
 NUNCA anunciar /esporocarp sem prova externa válida.
+
+Três estados (não colapsar):
+  /esporocarp      ⇔ MYCELIUM_REACHABLE + proof
+  /candidate-relay ⇔ Nostr outbound (kind 39401, TTL, sem proof)
+  /folha           ⇔ sem inbound; candidate ≠ esporocarp
 ```
 
 ## Formalização operacional
@@ -22,6 +27,7 @@ ELSE:
     membrane = folha | floresta | raiz
     NÃO anunciar /esporocarp
     withdraw / não refresh Spore Bank
+    # opcional: mycelium candidate [--loop]  → peers via Nostr 39401
 ```
 
 ## Mentiras perigosas
@@ -34,6 +40,7 @@ ELSE:
 | Horizon público | exposição do plano de controlo |
 | PeerId errado no seedbook | bootstrap falha |
 | Proof eterna sem refresh | esporocarpo fantasma |
+| `candidate_peers > 0` ⇒ `/esporocarp` | viola invariante |
 
 ## Gate no repo
 
@@ -45,3 +52,5 @@ MYCELIUM_REACHABLE=1 ./scripts/run-public-seed.sh
 ```
 
 `curl ifconfig.me` **nunca** basta.
+
+CandidateRelay (sem proof): [`candidate-relay.md`](candidate-relay.md).
