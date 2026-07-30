@@ -1345,8 +1345,8 @@ impl Organism {
                 if let Ok(bytes) = env.encode() {
                     let _ = self.hyphae.broadcast_lattice(bytes);
                 }
-                // Pequena espera para resposta via gossip
-                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                // Espera por respostas ShadeOffer via gossip
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
                 while std::time::Instant::now() < deadline {
                     let gathered = self.vault.gather();
                     if gathered.len() >= threshold as usize {

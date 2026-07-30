@@ -797,8 +797,27 @@ async fn entropy_cmd(home: &PathBuf, action: EntropyCmd) -> Result<(), String> {
             print_response(resp)
         }
         EntropyCmd::Reconstruct { threshold } => {
-            let resp = call(&sock, Request::EntropyReconstruct { threshold }).await?;
-            print_response(resp)
+            // Poll com retry pra dar tempo das shades chegarem via gossip
+            let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+            let mut last = String::new();
+            while tokio::time::Instant::now() < deadline {
+                match call(&sock, Request::EntropyReconstruct { threshold }).await? {
+                    Response::Ok { message } => {
+                        println!("[🍄] {message}");
+                        return Ok(());
+                    }
+                    Response::Err { message } => {
+                        last = message;
+                        if last.contains("não") && last.contains("custódia")  {
+                            // erro definitivo, não de timeout
+                            return Err(last);
+                        }
+                    }
+                    Response::Status(_) => return Err("resposta inesperada".into()),
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            Err(format!("entropy reconstruct timeout: {last}"))
         }
         EntropyCmd::Status => {
             let resp = call(&sock, Request::EntropyStatus).await?;

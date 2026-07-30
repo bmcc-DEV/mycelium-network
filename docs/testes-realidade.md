@@ -43,6 +43,37 @@ Dependência externa: único relay Nostr público (`wss://nos.lol`).
 
 ---
 
+## ✅ 30 Jul 2026 — CDN entre nós
+
+**Resultado:** Plot servido via HTTP de A, baixado de B.
+
+```bash
+curl -s http://127.0.0.1:7650/plots/Qm1b3282464a7...
+# → {"author":"...","message":"cdn-test","leaves":[{...}]}
+
+curl -s http://127.0.0.1:7650/layers/Qm3c30c083f0...
+# → {"files":{"app.payload":[...]}}
+```
+
+B acessou o SporeBank e LayerStore de A via HTTP. Sem gossip, sem DHT — CDN puro.
+
+## ✅ 30 Jul 2026 — Entropy gossip entre nós
+
+**Resultado:** Segredo fragmentado em A, reconstruído em B via gossip.
+
+```bash
+# A
+mycelium entropy shatter --secret "Segredo-entre-nos" -k 3 -n 5
+# → "5 shades geradas e distribuídas (3+5)"
+
+# B (após poll de 5s)
+mycelium entropy reconstruct -k 3
+# → "entropy: segredo reconstruído: 5365677265646f2d656e7472652d6e6f73"
+#   (hex → "Segredo-entre-nos")
+```
+
+**Comprovação:** Gossip ShadeOffer/ShadeRequest entre nós vizinhos.
+
 ## ✅ 30 Jul 2026 — CandidateRelay backchannel cifrado
 
 **Resultado:** Mensagem NIP-44 enviada e recebida com sucesso entre dois GhostIDs.

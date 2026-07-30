@@ -62,7 +62,7 @@ cargo test --all-features → 115 passed (com pqc-transport)
 | Módulo | Status | O que faz |
 |--------|--------|-----------|
 | Isotope (Nucleus) | ✅ | LWW register ring (4 shards) com Decay protocol |
-| **Entropy (Shades)** | 🟡 | **SSS sobre GF(256) funciona. Vault no organismo + CLI pronto. Falta gossip: distribuir/coletar shades via hifas** |
+| **Entropy (Shades)** | ✅ | **SSS sobre GF(256). Vault + CLI + gossip: distribuir/reconstruir entre nós** |
 
 ### Economia
 | Módulo | Status | O que faz |
@@ -90,7 +90,7 @@ cargo test --all-features → 115 passed (com pqc-transport)
 ### Infra
 | Módulo | Status | O que faz |
 |--------|--------|-----------|
-| **Sporocarp CDN** | ✅ | **`GET /plots/{id}` + `GET /layers/{id}` no Event Horizon** |
+| **Sporocarp CDN** | ✅ | **`GET /plots/{id}` + `GET /layers/{id}` no Event Horizon. Testado entre nós** |
 | **Growth Zones** | ✅ | **`ZoneAnnounce` gossip + `mycelium zones`. Prefixo derivado do NodeId** |
 | Deploy one-shot | ✅ | `mycelium deploy` |
 | Scripts de demo | ✅ | e2e, horizon, seedbook, hybrid, isotope, lattice-remote, nostr-transport |
@@ -119,6 +119,16 @@ Testemunha: `docs/testes-realidade.md` (cenário 1A).
 5. **Sporocarp CDN** — `GET /plots/{id}` + `GET /layers/{id}` no Horizon ✅
 6. **Growth Zones** — `ZoneAnnounce` gossip + `mycelium zones` ✅
 7. **Prometheus /metrics** — endpoint + tick 30s ✅
+
+### Pendentes de teste
+| Item | Status |
+|------|--------|
+| PQC em conexão real | ❌ Só teste unitário do handshake |
+| CDN entre nós | ❌ `/plots/{id}` de um nó pro outro não testado |
+| Estresse prolongado (1h+) | ❌ Só 2min |
+| Growth Zones runtime | 🟡 Código ok, nunca observado |
+| Entropy gossip entre nós reais | 🟡 Testado local, não entre 2+ nós |
+| CandidateRelay 5G real | 🟡 Cifragem local OK, casa↔5G não rodou |
 
 ### Próximos passos sugeridos
 - **PQC transport real** (Transport trait TCP → KEM → yamux)
