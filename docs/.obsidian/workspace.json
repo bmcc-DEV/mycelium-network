@@ -1,0 +1,193 @@
+{
+  "main": {
+    "id": "7b56abf98510fbcf",
+    "type": "split",
+    "children": [
+      {
+        "id": "df610d84b22174f9",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7a2eb973fbe4cdca",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "nostr-qel.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "nostr-qel"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "c5bbfe408af086c8",
+    "type": "split",
+    "children": [
+      {
+        "id": "4df64a04d7bc7bba",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "604c5f172fc23e00",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Explorador de arquivos"
+            }
+          },
+          {
+            "id": "3ca65c8accb5dcf9",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Procurar"
+            }
+          },
+          {
+            "id": "cde70584aa93c122",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Marcadores"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "a335f39716840d84",
+    "type": "split",
+    "children": [
+      {
+        "id": "cf447ae630b10ffc",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "03ee3d335da65282",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "matriz_transporte_nat.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Links inversos para matriz_transporte_nat"
+            }
+          },
+          {
+            "id": "9219bbddff148474",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "matriz_transporte_nat.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Links de saída para matriz_transporte_nat"
+            }
+          },
+          {
+            "id": "33565951776c0601",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Etiquetas"
+            }
+          },
+          {
+            "id": "a90eab73017271f7",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "Todas as propriedades"
+            }
+          },
+          {
+            "id": "9dff7832c4cef7cd",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "matriz_transporte_nat.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Sumário de matriz_transporte_nat"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Abrir a troca rápida": false,
+      "graph:Abrir visualização em gráfico": false,
+      "canvas:Criar novo canvas": false,
+      "daily-notes:Abrir a nota de hoje": false,
+      "templates:Inserir modelo": false,
+      "command-palette:Abrir paleta de comandos": false,
+      "bases:Criar nova base": false
+    }
+  },
+  "active": "7a2eb973fbe4cdca",
+  "lastOpenFiles": [
+    "matriz_transporte_nat.md",
+    "speckit-architecture.md",
+    "protocol.md",
+    "invariante_membrana.md"
+  ]
+}

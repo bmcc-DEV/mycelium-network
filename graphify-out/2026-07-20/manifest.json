@@ -1,0 +1,292 @@
+{
+  "cli/mycelium-cli/src/main.rs": {
+    "mtime": 1784566098.3040526,
+    "ast_hash": "676c439241e6f37586fe580520cd956b",
+    "semantic_hash": "676c439241e6f37586fe580520cd956b"
+  },
+  "crates/entropy/src/lib.rs": {
+    "mtime": 1784460791.4514027,
+    "ast_hash": "129a29b81f63d40a0510f7ca658b644b",
+    "semantic_hash": "129a29b81f63d40a0510f7ca658b644b"
+  },
+  "crates/giggs/src/lib.rs": {
+    "mtime": 1784461275.5167778,
+    "ast_hash": "a1bfb5045382f11b3a25f527c1e4ea5e",
+    "semantic_hash": "a1bfb5045382f11b3a25f527c1e4ea5e"
+  },
+  "crates/inertia/src/lib.rs": {
+    "mtime": 1784463477.6998773,
+    "ast_hash": "121f68e996361e34181f46896a5cdcf6",
+    "semantic_hash": "121f68e996361e34181f46896a5cdcf6"
+  },
+  "crates/isotope/src/lib.rs": {
+    "mtime": 1784468514.113177,
+    "ast_hash": "422f4d51c12297eb18edfe1b809701c8",
+    "semantic_hash": "422f4d51c12297eb18edfe1b809701c8"
+  },
+  "crates/mycelium-core/src/lib.rs": {
+    "mtime": 1784565573.4866123,
+    "ast_hash": "a2b4b296565e44a0320d2b82012a0bcc",
+    "semantic_hash": "a2b4b296565e44a0320d2b82012a0bcc"
+  },
+  "crates/mycelium-hyphae/src/lib.rs": {
+    "mtime": 1784566397.0240002,
+    "ast_hash": "2a3ce1c5b082e4b6d90aa4c09e0bf6f1",
+    "semantic_hash": "2a3ce1c5b082e4b6d90aa4c09e0bf6f1"
+  },
+  "crates/mycelium-hyphae/src/membrane.rs": {
+    "mtime": 1784565573.8986104,
+    "ast_hash": "d5b32d3bd53c70f71648695e1bd22a8c",
+    "semantic_hash": "d5b32d3bd53c70f71648695e1bd22a8c"
+  },
+  "crates/mycelium-hyphae/src/relay_mesh.rs": {
+    "mtime": 1784566412.4398236,
+    "ast_hash": "d6cd717ad7ebf053086d2e8191764624",
+    "semantic_hash": "d6cd717ad7ebf053086d2e8191764624"
+  },
+  "crates/mycelium-hyphae/src/seeds.rs": {
+    "mtime": 1784532346.893035,
+    "ast_hash": "a75d2b0e4419e054379c78ed0b1b1916",
+    "semantic_hash": "a75d2b0e4419e054379c78ed0b1b1916"
+  },
+  "crates/mycelium-hyphae/src/store_forward.rs": {
+    "mtime": 1784566108.2478943,
+    "ast_hash": "def793623a3d2446da5cfd1f4b736393",
+    "semantic_hash": "def793623a3d2446da5cfd1f4b736393"
+  },
+  "crates/mycelium-hyphae/src/webrtc_ice.rs": {
+    "mtime": 1784565971.9088283,
+    "ast_hash": "59370f9c0137109aa1bcdeb85fbead7e",
+    "semantic_hash": "59370f9c0137109aa1bcdeb85fbead7e"
+  },
+  "crates/mycelium-node/src/control.rs": {
+    "mtime": 1784565617.7744162,
+    "ast_hash": "1a10628f87c5e678d0580cd0b0bd58ee",
+    "semantic_hash": "1a10628f87c5e678d0580cd0b0bd58ee"
+  },
+  "crates/mycelium-node/src/lib.rs": {
+    "mtime": 1784566303.3211339,
+    "ast_hash": "901f769775ba8d1254ff9e87589a9000",
+    "semantic_hash": "901f769775ba8d1254ff9e87589a9000"
+  },
+  "crates/mycelium-node/src/organism.rs": {
+    "mtime": 1784566337.4687085,
+    "ast_hash": "b5007a92587e73b713eacf121d376ef8",
+    "semantic_hash": "b5007a92587e73b713eacf121d376ef8"
+  },
+  "crates/mycelium-node/src/protocol.rs": {
+    "mtime": 1784468516.461164,
+    "ast_hash": "76f686487ff18ea4443211d89df01347",
+    "semantic_hash": "76f686487ff18ea4443211d89df01347"
+  },
+  "crates/mycelium-node/src/store.rs": {
+    "mtime": 1784468515.9891665,
+    "ast_hash": "0d63a8629f7530a8f54a664e10e64723",
+    "semantic_hash": "0d63a8629f7530a8f54a664e10e64723"
+  },
+  "crates/mycelium-nutrients/src/lib.rs": {
+    "mtime": 1784530343.1015255,
+    "ast_hash": "b90eca41145f67ea180b6a608844a0ce",
+    "semantic_hash": "b90eca41145f67ea180b6a608844a0ce"
+  },
+  "crates/mycelium-pheromones/src/lib.rs": {
+    "mtime": 1784472475.0262125,
+    "ast_hash": "ccfb9be48b6d626ecf2b1e1519f63890",
+    "semantic_hash": "ccfb9be48b6d626ecf2b1e1519f63890"
+  },
+  "crates/mycelium-sporebank/src/lib.rs": {
+    "mtime": 1784464212.1079485,
+    "ast_hash": "45fb4e254dbc86a1c7bcefab35edb941",
+    "semantic_hash": "45fb4e254dbc86a1c7bcefab35edb941"
+  },
+  "crates/plasma/src/lib.rs": {
+    "mtime": 1784460804.49133,
+    "ast_hash": "933380c550e705c3fe11da603ccf49d1",
+    "semantic_hash": "933380c550e705c3fe11da603ccf49d1"
+  },
+  "crates/singularity/src/lib.rs": {
+    "mtime": 1784461969.8141632,
+    "ast_hash": "ae785433e691ddc02551a8c384a31f2b",
+    "semantic_hash": "ae785433e691ddc02551a8c384a31f2b"
+  },
+  "crates/singularity/src/proxy.rs": {
+    "mtime": 1784466578.8601565,
+    "ast_hash": "4fcfd3c413f0e97ff2af164320044686",
+    "semantic_hash": "4fcfd3c413f0e97ff2af164320044686"
+  },
+  "crates/thefield/src/lib.rs": {
+    "mtime": 1784461274.524783,
+    "ast_hash": "912f843025af5e335a82b131f291d1a1",
+    "semantic_hash": "912f843025af5e335a82b131f291d1a1"
+  },
+  "crates/vacuum/src/layers.rs": {
+    "mtime": 1784464604.640502,
+    "ast_hash": "7bb51ff901603a5bb992c879b8be137b",
+    "semantic_hash": "7bb51ff901603a5bb992c879b8be137b"
+  },
+  "crates/vacuum/src/lib.rs": {
+    "mtime": 1784463504.4917533,
+    "ast_hash": "4520c3b3841e67a6fd9ad5e740ce7ef8",
+    "semantic_hash": "4520c3b3841e67a6fd9ad5e740ce7ef8"
+  },
+  "crates/vacuum/src/process.rs": {
+    "mtime": 1784463892.2036073,
+    "ast_hash": "ab2546a6a6b691133355619581f83a51",
+    "semantic_hash": "ab2546a6a6b691133355619581f83a51"
+  },
+  "scripts/cpe-probe-session.sh": {
+    "mtime": 1784573100.9206161,
+    "ast_hash": "47e9385643fe236af1a7b1c8658f8110",
+    "semantic_hash": "47e9385643fe236af1a7b1c8658f8110"
+  },
+  "scripts/cpe-sensor.sh": {
+    "mtime": 1784570830.1963692,
+    "ast_hash": "924b9aee87e501b8a6ae63d09b0fe8ab",
+    "semantic_hash": "924b9aee87e501b8a6ae63d09b0fe8ab"
+  },
+  "scripts/e2e-demo.sh": {
+    "mtime": 1784461652.0429204,
+    "ast_hash": "f67cc6c053b71e873338a5ed12b050ab",
+    "semantic_hash": "f67cc6c053b71e873338a5ed12b050ab"
+  },
+  "scripts/export-seed.sh": {
+    "mtime": 1784568726.5193577,
+    "ast_hash": "4bf2ac8f776cb13873f83c3e1bc0f660",
+    "semantic_hash": "4bf2ac8f776cb13873f83c3e1bc0f660"
+  },
+  "scripts/horizon-demo.sh": {
+    "mtime": 1784463624.8671956,
+    "ast_hash": "9a9e7b2cffb8311653dd65eaea0e73ac",
+    "semantic_hash": "9a9e7b2cffb8311653dd65eaea0e73ac"
+  },
+  "scripts/install-seed.sh": {
+    "mtime": 1784568462.3609424,
+    "ast_hash": "440ffe400860b4b6312b457d44a04df1",
+    "semantic_hash": "440ffe400860b4b6312b457d44a04df1"
+  },
+  "scripts/isotope-decay-demo.sh": {
+    "mtime": 1784468602.740697,
+    "ast_hash": "1330e689ef5af4de6d78b7970ae38e9b",
+    "semantic_hash": "1330e689ef5af4de6d78b7970ae38e9b"
+  },
+  "scripts/lattice-remote-demo.sh": {
+    "mtime": 1784466623.828237,
+    "ast_hash": "31677948da5e93659b63d18b2f2dc0c3",
+    "semantic_hash": "31677948da5e93659b63d18b2f2dc0c3"
+  },
+  "scripts/mycelium-diagnose.sh": {
+    "mtime": 1784565534.3067849,
+    "ast_hash": "1daac87c994148ed63b2a399b63ad7f3",
+    "semantic_hash": "1daac87c994148ed63b2a399b63ad7f3"
+  },
+  "scripts/probe-sporocarp.sh": {
+    "mtime": 1784569574.8943095,
+    "ast_hash": "ea7c705239d87b4060c8e50a6aa434ed",
+    "semantic_hash": "ea7c705239d87b4060c8e50a6aa434ed"
+  },
+  "scripts/run-public-seed.sh": {
+    "mtime": 1784569623.6300204,
+    "ast_hash": "e416dae8823b7e0ccce3be16b8801ec1",
+    "semantic_hash": "e416dae8823b7e0ccce3be16b8801ec1"
+  },
+  "scripts/seedbook-demo.sh": {
+    "mtime": 1784463627.111185,
+    "ast_hash": "a2c2f66916688a9c0776b33c4e0d836d",
+    "semantic_hash": "a2c2f66916688a9c0776b33c4e0d836d"
+  },
+  "scripts/verify-sporocarp.sh": {
+    "mtime": 1784569581.6102695,
+    "ast_hash": "4dae12d7515f5eb6cae3bb15481b283d",
+    "semantic_hash": "4dae12d7515f5eb6cae3bb15481b283d"
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1784468613.0446432,
+    "ast_hash": "d7e6b0c7e1f2aa7a4b5275aead238db2",
+    "semantic_hash": "d7e6b0c7e1f2aa7a4b5275aead238db2"
+  },
+  "README.md": {
+    "mtime": 1784569627.9339948,
+    "ast_hash": "6506ca302ea1aab2b38bfd5a365c6966",
+    "semantic_hash": "6506ca302ea1aab2b38bfd5a365c6966"
+  },
+  "docs/architecture.md": {
+    "mtime": 1784472458.7262251,
+    "ast_hash": "7cef5b2dcdda28e754bcbb959bf2a051",
+    "semantic_hash": "7cef5b2dcdda28e754bcbb959bf2a051"
+  },
+  "docs/candidatos.md": {
+    "mtime": 1784570838.4923923,
+    "ast_hash": "00e25fef69d1b6b0c0758214c68fd6c6",
+    "semantic_hash": "00e25fef69d1b6b0c0758214c68fd6c6"
+  },
+  "docs/engenharia-reversa-bloqueio.md": {
+    "mtime": 1784570838.1163914,
+    "ast_hash": "3d3778fbd52d08e2ba6d58778f4871db",
+    "semantic_hash": "3d3778fbd52d08e2ba6d58778f4871db"
+  },
+  "docs/glossary.md": {
+    "mtime": 1784472461.7742229,
+    "ast_hash": "d53b833da3d07fe60463b8deebc502f0",
+    "semantic_hash": "d53b833da3d07fe60463b8deebc502f0"
+  },
+  "docs/invariante_membrana.md": {
+    "mtime": 1784569611.714091,
+    "ast_hash": "d2ee3c0a2b8a91297c205d2915ff306a",
+    "semantic_hash": "d2ee3c0a2b8a91297c205d2915ff306a"
+  },
+  "docs/live_vs_dtn.md": {
+    "mtime": 1784569611.714091,
+    "ast_hash": "9d86a4223f3e012e7e2fc5940a7f7c91",
+    "semantic_hash": "9d86a4223f3e012e7e2fc5940a7f7c91"
+  },
+  "docs/mapa_cpe_vivo.md": {
+    "mtime": 1784570837.9043908,
+    "ast_hash": "6cd3a5860fceaddc4bef08fe2432edb6",
+    "semantic_hash": "6cd3a5860fceaddc4bef08fe2432edb6"
+  },
+  "docs/matriz_membranas.md": {
+    "mtime": 1784569600.5421574,
+    "ast_hash": "e6cde060c92afd17533e27fa5566d35d",
+    "semantic_hash": "e6cde060c92afd17533e27fa5566d35d"
+  },
+  "docs/matriz_transporte_nat.md": {
+    "mtime": 1784569603.6061392,
+    "ast_hash": "33e5647621622f4f2919944bee68e685",
+    "semantic_hash": "33e5647621622f4f2919944bee68e685"
+  },
+  "docs/ops-seed.md": {
+    "mtime": 1784568474.9328668,
+    "ast_hash": "c99d928319df98ebc16ef3beda84290c",
+    "semantic_hash": "c99d928319df98ebc16ef3beda84290c"
+  },
+  "docs/pitch_voluntario.txt": {
+    "mtime": 1784569619.282046,
+    "ast_hash": "fda63cb719276ac3158f5fe9fd437936",
+    "semantic_hash": "fda63cb719276ac3158f5fe9fd437936"
+  },
+  "docs/protocol.md": {
+    "mtime": 1784468610.7166553,
+    "ast_hash": "dd96aea055b6c79e7ae6da36b3b9933d",
+    "semantic_hash": "dd96aea055b6c79e7ae6da36b3b9933d"
+  },
+  "docs/rizomorphs.md": {
+    "mtime": 1784569625.6540084,
+    "ast_hash": "c487e4d53576549f546682bf3e0589b7",
+    "semantic_hash": "c487e4d53576549f546682bf3e0589b7"
+  },
+  "docs/volunteer-sporocarp.md": {
+    "mtime": 1784569620.8660367,
+    "ast_hash": "d9fbe1fd5ca3c064873386c4f9203598",
+    "semantic_hash": "d9fbe1fd5ca3c064873386c4f9203598"
+  },
+  "seeds/mainnet.example.txt": {
+    "mtime": 1784568477.1488533,
+    "ast_hash": "f53ea0292991ead6f8dc57b7e83a2cf6",
+    "semantic_hash": "f53ea0292991ead6f8dc57b7e83a2cf6"
+  },
+  "seeds/mainnet.txt": {
+    "mtime": 1784568478.9128428,
+    "ast_hash": "376fdffb3e4692a502ba85532fe78c78",
+    "semantic_hash": "376fdffb3e4692a502ba85532fe78c78"
+  }
+}
