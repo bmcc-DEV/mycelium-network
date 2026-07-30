@@ -48,6 +48,31 @@ Vacuum Chamber → Plasma Ion → Singularity Event Horizon
                             └──────────────┘
 ```
 
+## Módulos adicionais
+
+### Entropy (Shades)
+SSS sobre GF(256). CLI + organismo integrado. Pendente: distribuição
+via gossip. [`docs/entropy.md`](entropy.md)
+
+### PQC (ML-KEM-1024)
+Handshake híbrido pós-Noise. Feature `pqc-transport`. Pendente:
+transporte real (Transport trait). [`docs/pqc.md`](pqc.md)
+
+### Prometheus
+`GET /metrics` no Event Horizon com 15+ métricas. Tick a cada 30s.
+[`docs/prometheus.md`](prometheus.md)
+
+### Nutrient Ledger Distribuído
+CRDT sobre gossip (planejado). [`docs/nutrient-ledger.md`](nutrient-ledger.md)
+
+### Plasma Ion Migration
+Gossip de oferta + handshake entre nós (planejado).
+[`docs/plasma-ion-migration.md`](plasma-ion-migration.md)
+
+### Sporocarp CDN + Growth Zones
+Rotas HTTP para Plots/layers + zonas orgânicas (planejado).
+[`docs/sporocarp-cdn.md`](sporocarp-cdn.md)
+
 ## Substrato (crates `mycelium-*`)
 
 | Crate | Papel |

@@ -2,7 +2,7 @@
 
 use crate::{HorizonTable, SingularityError};
 use axum::body::Body;
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::{ConnectInfo, Path, Request, State};
 use axum::http::{header, StatusCode, Uri};
 use axum::middleware::{from_fn, Next};
 use axum::response::{IntoResponse, Response};
@@ -92,6 +92,9 @@ pub async fn serve_horizon(
         .route("/", any(root))
         .route("/console", any(console))
         .route("/health", any(health))
+        .route("/metrics", any(metrics))
+        .route("/plots/{id}", any(serve_plot))
+        .route("/layers/{id}", any(serve_layer))
         .route("/{*path}", any(proxy))
         .layer(from_fn(rate_gate))
         .with_state(table);
@@ -119,6 +122,72 @@ pub async fn serve_horizon(
 
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, "ok")
+}
+
+async fn serve_plot(
+    State(table): State<HorizonTable>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let home = match table.read().unwrap().get_home() {
+        Some(h) => h.to_path_buf(),
+        None => return (StatusCode::NOT_FOUND, "home não configurado").into_response(),
+    };
+    if id.len() != 66 || !id.starts_with("Qm") {
+        return (StatusCode::BAD_REQUEST, "ContentId inválido (Qm + 64 hex)").into_response();
+    }
+    let cid = match id.parse::<mycelium_core::ContentId>() {
+        Ok(c) => c,
+        Err(_) => return (StatusCode::BAD_REQUEST, "ContentId inválido").into_response(),
+    };
+    match mycelium_sporebank::SporeBank::open(&home) {
+        Ok(bank) => match bank.recall(&cid) {
+            Some(plot) => {
+                let json = serde_json::to_string(&plot).unwrap_or_default();
+                (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], json).into_response()
+            }
+            None => (StatusCode::NOT_FOUND, "plot ausente").into_response(),
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("spore bank: {e}")).into_response(),
+    }
+}
+
+async fn serve_layer(
+    State(table): State<HorizonTable>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let home = match table.read().unwrap().get_home() {
+        Some(h) => h.to_path_buf(),
+        None => return (StatusCode::NOT_FOUND, "home não configurado").into_response(),
+    };
+    if id.len() != 66 || !id.starts_with("Qm") {
+        return (StatusCode::BAD_REQUEST, "ContentId inválido (Qm + 64 hex)").into_response();
+    }
+    let cid = match id.parse::<mycelium_core::ContentId>() {
+        Ok(c) => c,
+        Err(_) => return (StatusCode::BAD_REQUEST, "ContentId inválido").into_response(),
+    };
+    let layers_dir = home.join("layers");
+    match vacuum::LayerStore::open(&layers_dir) {
+        Ok(store) => match store.get(&cid) {
+            Some(bytes) => {
+                (StatusCode::OK, [(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response()
+            }
+            None => (StatusCode::NOT_FOUND, "layer ausente").into_response(),
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("layer store: {e}")).into_response(),
+    }
+}
+
+async fn metrics(State(table): State<HorizonTable>) -> impl IntoResponse {
+    let snapshot = table.read().unwrap().metrics_snapshot().to_string();
+    (
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; charset=utf-8; version=0.0.4",
+        )],
+        snapshot,
+    )
 }
 
 async fn root(State(table): State<HorizonTable>) -> impl IntoResponse {
@@ -204,7 +273,7 @@ async fn proxy(State(table): State<HorizonTable>, req: Request) -> Response {
         .unwrap_or("")
         .to_string();
 
-    if ion.is_empty() || ion == "health" {
+    if ion.is_empty() || ion == "health" || ion == "metrics" {
         return StatusCode::NOT_FOUND.into_response();
     }
 

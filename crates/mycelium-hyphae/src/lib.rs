@@ -13,6 +13,8 @@ mod membrane;
 mod seeds;
 mod relay_mesh;
 mod store_forward;
+#[cfg(feature = "pqc-transport")]
+pub mod pqc;
 mod webrtc_ice;
 
 pub use membrane::{default_listen_addrs, seed_dial_rank};
@@ -338,6 +340,13 @@ impl HyphaeNode {
                 })
                 .map_err(|e| HyphaeError::Germination(e.to_string()))?
         };
+
+        #[cfg(feature = "pqc-transport")]
+        {
+            tracing::info!(
+                "PQC (ML-KEM-1024) disponível — híbrido pós-Noise via hyphae::pqc"
+            );
+        }
 
         let mut swarm = builder
             .with_dns_config(

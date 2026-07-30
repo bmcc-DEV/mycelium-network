@@ -11,6 +11,7 @@ pub use proxy::{serve_horizon, HorizonHandle};
 use mycelium_core::NodeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, thiserror::Error)]
@@ -51,6 +52,10 @@ pub struct EventHorizon {
     orbits: HashMap<String, Vec<Orbit>>,
     /// ion name → melhor upstream (atalho para path-based routing)
     by_ion: HashMap<String, Orbit>,
+    /// Snapshot de métricas Prometheus (atualizado pelo organismo).
+    metrics: String,
+    /// Caminho do home do nó (para acessar SporeBank nas rotas CDN).
+    home: Option<PathBuf>,
 }
 
 impl EventHorizon {
@@ -118,6 +123,24 @@ impl EventHorizon {
             .iter()
             .map(|(k, v)| (k.clone(), v.upstream.clone()))
             .collect()
+    }
+
+    /// Snapshot de métricas para Prometheus (atualizado pelo organismo).
+    pub fn metrics_snapshot(&self) -> &str {
+        &self.metrics
+    }
+
+    /// Define o snapshot de métricas (chamado pelo organismo periodicamente).
+    pub fn set_metrics(&mut self, snapshot: String) {
+        self.metrics = snapshot;
+    }
+
+    pub fn set_home(&mut self, home: PathBuf) {
+        self.home = Some(home);
+    }
+
+    pub fn get_home(&self) -> Option<&std::path::Path> {
+        self.home.as_deref()
     }
 }
 

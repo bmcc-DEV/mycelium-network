@@ -79,7 +79,7 @@ impl ChaosKey {
 
 /// Um cofre local: gera e guarda as Shades que este nó é responsável
 /// por custodiar (tipicamente 1 de N).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Vault {
     custody: Vec<(NodeId, Shade)>,
 }

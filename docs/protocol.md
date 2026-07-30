@@ -33,6 +33,11 @@ Mensagens novas saem como:
 | `AtomSync` | Estado Isotope LWW (dono do shard persiste) |
 | `DecayQuery` / `DecayReply` | Consulta Isotope pelas hifas (miss local) |
 | `LayerOffer` / `LayerNeed` | Layers Vacuum |
+| `ShadeOffer` | Oferta de Shade Entropy (planejado) |
+| `ShadeRequest` | Pedido de Shade Entropy (planejado) |
+| `BalanceSync` | Sincronia de ledger Nutrient (planejado) |
+| `IonOffer` / `IonAccept` / `IonMigrate` / `IonReady` | Migração de Plasma Ion (planejado) |
+| `PlotServe` | Anúncio de Plot servível via HTTP (planejado) |
 
 ## Isotope
 

@@ -139,6 +139,7 @@ impl GhostId {
 
     fn from_seed(seed: [u8; 32], ttl_secs: u64) -> Result<Self, GhostError> {
         let secp = Secp256k1::new();
+        #[allow(deprecated)]
         let secret = SecretKey::from_slice(&seed).map_err(|_| GhostError::InvalidSeed)?;
         let keypair = Keypair::from_secret_key(&secp, &secret);
         let (xonly, _parity) = keypair.x_only_public_key();
@@ -191,6 +192,7 @@ impl GhostId {
         sig: &[u8; 64],
     ) -> Result<(), GhostError> {
         let secp = Secp256k1::verification_only();
+        #[allow(deprecated)]
         let xonly = XOnlyPublicKey::from_slice(pubkey).map_err(|_| GhostError::BadSignature)?;
         let msg = Message::from_digest_slice(event_id).map_err(|_| GhostError::BadSignature)?;
         let signature =

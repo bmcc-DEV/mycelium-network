@@ -1,5 +1,6 @@
 //! Persistência em disco do organismo.
 
+use entropy::Vault;
 use isotope::Nucleus;
 use mycelium_core::Resources;
 use mycelium_hyphae::HyphaMetrics;
@@ -82,6 +83,10 @@ impl NodeStore {
 
     fn nucleus_path(&self) -> PathBuf {
         self.root.join("nucleus.json")
+    }
+
+    fn vault_path(&self) -> PathBuf {
+        self.root.join("vault.json")
     }
 
     fn seed_path(&self) -> PathBuf {
@@ -196,5 +201,17 @@ impl NodeStore {
     pub fn clear_runtime_files(&self) {
         let _ = std::fs::remove_file(self.socket_path());
         let _ = std::fs::remove_file(self.pid_path());
+    }
+
+    pub fn load_vault(&self) -> Vault {
+        std::fs::read(self.vault_path())
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_vault(&self, vault: &Vault) -> Result<(), StoreError> {
+        std::fs::write(self.vault_path(), serde_json::to_vec_pretty(vault)?)?;
+        Ok(())
     }
 }

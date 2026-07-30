@@ -121,6 +121,7 @@ impl PersistentRelay {
         Ok((sub_id, rx))
     }
 
+    #[allow(dead_code)]
     pub fn subscribe_broadcast(&self) -> broadcast::Receiver<NostrEvent> {
         self.events.subscribe()
     }

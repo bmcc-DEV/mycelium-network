@@ -63,15 +63,12 @@ pub fn create_shard_event(
 /// NIP-44 encrypt (pubkey x-only hex do destinatário).
 pub fn encrypt_nip44(ghost: &GhostId, recipient_hex: &str, plaintext: &str) -> Result<String, NostrError> {
     let sk_bytes = ghost.secret_key_bytes();
-    let sk = SecretKey::from_slice(&sk_bytes).map_err(|e| NostrError::Nip44(e.to_string()))?;
-    let recip_bytes =
-        hex::decode(recipient_hex).map_err(|e| NostrError::InvalidHex(e.to_string()))?;
-    if recip_bytes.len() != 32 {
-        return Err(NostrError::InvalidHex(
-            "pubkey destinatário deve ter 32 bytes".into(),
-        ));
-    }
-    let xonly = XOnlyPublicKey::from_slice(&recip_bytes)
+    let sk = SecretKey::from_byte_array(sk_bytes).map_err(|e| NostrError::Nip44(e.to_string()))?;
+    let recip_bytes: [u8; 32] = hex::decode(recipient_hex)
+        .map_err(|e| NostrError::InvalidHex(e.to_string()))?
+        .try_into()
+        .map_err(|_| NostrError::InvalidHex("pubkey destinatário deve ter 32 bytes".into()))?;
+    let xonly = XOnlyPublicKey::from_byte_array(recip_bytes)
         .map_err(|e| NostrError::Nip44(e.to_string()))?;
     let convo = nip44::get_conversation_key(sk, xonly);
     nip44::encrypt(&convo, plaintext).map_err(|e| NostrError::Nip44(e.to_string()))
@@ -86,10 +83,12 @@ pub fn decrypt_nip44_to_string(
     if content.trim_start().starts_with('{') {
         return Ok(content.to_string());
     }
-    let sk = SecretKey::from_slice(recipient_secret).map_err(|e| NostrError::Nip44(e.to_string()))?;
-    let sender_bytes =
-        hex::decode(sender_pubkey_hex).map_err(|e| NostrError::InvalidHex(e.to_string()))?;
-    let xonly = XOnlyPublicKey::from_slice(&sender_bytes)
+    let sk = SecretKey::from_byte_array(*recipient_secret).map_err(|e| NostrError::Nip44(e.to_string()))?;
+    let sender_bytes: [u8; 32] = hex::decode(sender_pubkey_hex)
+        .map_err(|e| NostrError::InvalidHex(e.to_string()))?
+        .try_into()
+        .map_err(|_| NostrError::InvalidHex("pubkey remetente deve ter 32 bytes".into()))?;
+    let xonly = XOnlyPublicKey::from_byte_array(sender_bytes)
         .map_err(|e| NostrError::Nip44(e.to_string()))?;
     let convo = nip44::get_conversation_key(sk, xonly);
     nip44::decrypt(&convo, content).map_err(|e| NostrError::Nip44(e.to_string()))

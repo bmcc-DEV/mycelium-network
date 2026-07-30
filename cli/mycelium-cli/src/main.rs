@@ -191,6 +191,22 @@ enum Commands {
         timeout: u64,
     },
     Shutdown,
+    /// Mostra balance local + de peers.
+    Balance,
+    /// Migra um Ion para outro nó.
+    IonMigrate {
+        #[arg(long)]
+        ion: String,
+        #[arg(long)]
+        target: String,
+    },
+    /// Mostra zonas de crescimento conhecidas.
+    Zones,
+    /// Entropy: Shamir Secret Sharing com meia-vida.
+    Entropy {
+        #[command(subcommand)]
+        action: EntropyCmd,
+    },
     /// CandidateRelay (kind 39401/39406): descoberta + backchannel CGNAT↔CGNAT.
     Candidate {
         #[command(subcommand)]
@@ -234,6 +250,26 @@ enum CandidateCmd {
     Whoami,
     /// Apaga `candidate.session` (novo GhostID na próxima vez).
     Reset,
+}
+
+#[derive(Subcommand)]
+enum EntropyCmd {
+    /// Fragmenta um segredo em N Shades.
+    Shatter {
+        #[arg(short, long)]
+        secret: String,
+        #[arg(short = 'k', long, default_value_t = 3)]
+        threshold: u8,
+        #[arg(short = 'n', long, default_value_t = 5)]
+        total: u8,
+    },
+    /// Reconstrói o segredo a partir das Shades em custódia.
+    Reconstruct {
+        #[arg(short = 'k', long, default_value_t = 3)]
+        threshold: u8,
+    },
+    /// Mostra as Shades armazenadas.
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -395,6 +431,10 @@ fn main() {
             },
         )),
         Commands::Shutdown => rt.block_on(rpc(&home, Request::Shutdown)),
+        Commands::Balance => rt.block_on(rpc(&home, Request::Balance)),
+        Commands::IonMigrate { ion, target } => rt.block_on(rpc(&home, Request::IonMigrate { ion, target })),
+        Commands::Zones => rt.block_on(rpc(&home, Request::Zones)),
+        Commands::Entropy { action } => rt.block_on(entropy_cmd(&home, action)),
         Commands::Candidate {
             cmd,
             r#loop,
@@ -733,6 +773,36 @@ async fn candidate_cmd(
                 }
                 Ok(())
             }
+        }
+    }
+}
+
+async fn entropy_cmd(home: &PathBuf, action: EntropyCmd) -> Result<(), String> {
+    let sock = home.join("mycelium.sock");
+    match action {
+        EntropyCmd::Shatter {
+            secret,
+            threshold,
+            total,
+        } => {
+            let resp = call(
+                &sock,
+                Request::EntropyShatter {
+                    secret,
+                    threshold,
+                    total,
+                },
+            )
+            .await?;
+            print_response(resp)
+        }
+        EntropyCmd::Reconstruct { threshold } => {
+            let resp = call(&sock, Request::EntropyReconstruct { threshold }).await?;
+            print_response(resp)
+        }
+        EntropyCmd::Status => {
+            let resp = call(&sock, Request::EntropyStatus).await?;
+            print_response(resp)
         }
     }
 }

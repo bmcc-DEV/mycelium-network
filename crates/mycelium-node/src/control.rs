@@ -65,6 +65,27 @@ pub enum Request {
     IsotopeGet {
         key: String,
     },
+    /// Fragmenta um segredo em N Shades (Shamir SSS).
+    EntropyShatter {
+        secret: String,
+        threshold: u8,
+        total: u8,
+    },
+    /// Reconstrói o segredo a partir de Shades recolhidas.
+    EntropyReconstruct {
+        threshold: u8,
+    },
+    /// Mostra as Shades em custódia.
+    EntropyStatus,
+    /// Mostra balance local + de peers.
+    Balance,
+    /// Dispara migração de Ion para outro nó.
+    IonMigrate {
+        ion: String,
+        target: String,
+    },
+    /// Mostra zonas de crescimento.
+    Zones,
     Shutdown,
 }
 

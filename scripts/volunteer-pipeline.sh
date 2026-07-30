@@ -322,7 +322,7 @@ if not found:
         "estado": estado,
         "updated": datetime.date.today().isoformat(),
     })
-data["updated"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%MZ")
+data["updated"] = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%MZ")
 with open(path, "w") as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
     f.write("\n")

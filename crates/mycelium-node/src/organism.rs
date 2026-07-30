@@ -113,6 +113,10 @@ pub struct Organism {
     nostr_relay: String,
     #[cfg(feature = "nostr-transport")]
     nostr_dialed: HashMap<String, std::time::Instant>,
+    vault: entropy::Vault,
+    remote_ledger: HashMap<NodeId, (HashMap<Nutrient, u64>, u64)>,
+    known_zones: HashMap<String, Vec<NodeId>>,
+    ion_hosts: HashMap<String, String>,
 }
 
 impl Organism {
@@ -251,6 +255,10 @@ impl Organism {
 
         let mycelium_bin = std::env::current_exe().map_err(|e| OrganismError::Msg(e.to_string()))?;
         let horizon = EventHorizon::shared();
+        {
+            let mut h = horizon.write().unwrap();
+            h.set_home(config.home.clone());
+        }
         let records = state.ions.clone();
         let mut nucleus = store
             .load_nucleus()
@@ -265,6 +273,7 @@ impl Organism {
             );
             store.save_nucleus(&nucleus)?;
         }
+        let vault = store.load_vault();
         let mut org = Self {
             store,
             gland,
@@ -297,6 +306,10 @@ impl Organism {
                 .unwrap_or_else(|| "wss://nos.lol".into()),
             #[cfg(feature = "nostr-transport")]
             nostr_dialed: HashMap::new(),
+            vault,
+            remote_ledger: HashMap::new(),
+            known_zones: HashMap::new(),
+            ion_hosts: HashMap::new(),
         };
 
         for rec in records {
@@ -321,6 +334,7 @@ impl Organism {
         self.store.save_state(&self.state)?;
         self.store.save_ledger(&self.ledger)?;
         self.store.save_nucleus(&self.nucleus)?;
+        self.store.save_vault(&self.vault)?;
         let addrs: Vec<String> = self
             .hyphae
             .dialable_addrs()
@@ -1021,6 +1035,128 @@ impl Organism {
                 self.pending_decays.remove(&key);
                 tracing::info!(%key, "decay reply absorvido");
             }
+            Envelope::ShadeOffer {
+                shade,
+                custodian,
+                from,
+            } => {
+                if custodian == self.gland.node_id() {
+                    self.vault.hold(from, shade);
+                    self.persist()?;
+                    tracing::info!(%from, "shade custodiada");
+                }
+            }
+            Envelope::ShadeRequest {
+                requester,
+                threshold: _,
+            } => {
+                if requester != self.gland.node_id() && !self.vault.is_empty() {
+                    for shade in self.vault.gather() {
+                        let env = Envelope::ShadeOffer {
+                            shade,
+                            custodian: requester,
+                            from: self.gland.node_id(),
+                        };
+                        if let Ok(bytes) = env.encode() {
+                            let _ = self.hyphae.broadcast_lattice(bytes);
+                        }
+                    }
+                    tracing::info!(%requester, "shades enviadas ao requisitante");
+                }
+            }
+            Envelope::BalanceSync { node_id, balances, clock } => {
+                if node_id == self.gland.node_id() {
+                    return Ok(());
+                }
+                let entry = self.remote_ledger.entry(node_id).or_default();
+                if clock > entry.1 {
+                    entry.0 = balances;
+                    entry.1 = clock;
+                }
+            }
+            Envelope::IonOffer { ion, host: _, charge: _, desired_replicas: _, layers } => {
+                if self.resources.cpu_cores == 0 || self.chambers.contains_key(&ion) {
+                    return Ok(());
+                }
+                // Aceita se tem recursos ociosos
+                let env = Envelope::IonAccept {
+                    ion: ion.clone(),
+                    acceptor: self.gland.node_id(),
+                };
+                if let Ok(bytes) = env.encode() {
+                    let _ = self.hyphae.broadcast_lattice(bytes);
+                }
+                // Pede as layers
+                for lid in &layers {
+                    let env = Envelope::LayerNeed { id: *lid };
+                    if let Ok(bytes) = env.encode() {
+                        let _ = self.hyphae.broadcast_lattice(bytes);
+                    }
+                }
+            }
+            Envelope::IonAccept { ion, acceptor } => {
+                if acceptor == self.gland.node_id() {
+                    return Ok(());
+                }
+                tracing::info!(%ion, %acceptor, "IonOffer aceito");
+            }
+            Envelope::IonMigrate { ion, void, layers } => {
+                let layer_store = match vacuum::LayerStore::open(self.store.layers_dir()) {
+                    Ok(s) => s,
+                    Err(_) => return Ok(()),
+                };
+                for lid in &layers {
+                    if !layer_store.has(lid) {
+                        self.request_layer(lid);
+                        return Ok(());
+                    }
+                }
+                match vacuum::Chamber::suck_store(void, &layer_store, self.resources) {
+                    Ok(_chamber) => {
+                        let host = format!("sporocarp.mycelium/{}", self.gland.node_id().short());
+                        {
+                            let mut table = self.horizon.write().unwrap();
+                            table.expose(&host, singularity::Orbit {
+                                ion: ion.clone(),
+                                node: self.gland.node_id(),
+                                mass: self.resources.cpu_cores as u64 * 10 + 1,
+                                resistance: 0,
+                                upstream: "".into(),
+                            });
+                        }
+                        let env = Envelope::IonReady {
+                            ion: ion.clone(),
+                            node: self.gland.node_id(),
+                            upstream: format!("http://127.0.0.1:{}/", self.state.horizon_port),
+                        };
+                        if let Ok(bytes) = env.encode() {
+                            let _ = self.hyphae.broadcast_lattice(bytes);
+                        }
+                        tracing::info!(%ion, "Ion migrado aceito");
+                    }
+                    Err(e) => tracing::warn!(error = %e, "IonMigrate suck falhou"),
+                }
+            }
+            Envelope::IonReady { ion, node, upstream } => {
+                if node == self.gland.node_id() {
+                    return Ok(());
+                }
+                let host = format!("sporocarp.mycelium/{}", self.gland.node_id().short());
+                {
+                    let mut table = self.horizon.write().unwrap();
+                    table.expose(&host, singularity::Orbit {
+                        ion: ion.clone(),
+                        node,
+                        mass: 10,
+                        resistance: 1,
+                        upstream,
+                    });
+                }
+                tracing::info!(%ion, %node, "IonReady — rota adicionada no Horizon");
+            }
+            Envelope::ZoneAnnounce { prefix, custodian } => {
+                self.known_zones.entry(prefix).or_default().push(custodian);
+            }
         }
         self.persist()?;
         Ok(())
@@ -1145,6 +1281,153 @@ impl Organism {
                     message: e.to_string(),
                 },
             },
+            Request::EntropyShatter {
+                secret,
+                threshold,
+                total,
+            } => {
+                match entropy::Vault::shatter(secret.as_bytes(), threshold, total) {
+                    Ok(shades) => {
+                        let n = shades.len();
+                        self.vault = entropy::Vault::new();
+                        let node_id = self.gland.node_id();
+                        for (i, s) in shades.into_iter().enumerate() {
+                            let custodian = if i == 0 {
+                                node_id
+                            } else {
+                                // Distribui para peers via gossip
+                                let env = Envelope::ShadeOffer {
+                                    shade: s.clone(),
+                                    custodian: node_id,
+                                    from: node_id,
+                                };
+                                if let Ok(bytes) = env.encode() {
+                                    let _ = self.hyphae.broadcast_lattice(bytes);
+                                }
+                                // Hold local da primeira shade
+                                node_id
+                            };
+                            self.vault.hold(custodian, s);
+                        }
+                        self.persist().ok();
+                        Response::Ok {
+                            message: format!("entropy: {n} shades geradas e distribuídas ({threshold}+{total})"),
+                        }
+                    }
+                    Err(e) => Response::Err {
+                        message: format!("entropy shatter: {e}"),
+                    },
+                }
+            }
+            Request::EntropyReconstruct { threshold } => {
+                // Tenta coleta remota primeiro
+                let env = Envelope::ShadeRequest {
+                    requester: self.gland.node_id(),
+                    threshold,
+                };
+                if let Ok(bytes) = env.encode() {
+                    let _ = self.hyphae.broadcast_lattice(bytes);
+                }
+                // Pequena espera para resposta via gossip
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                while std::time::Instant::now() < deadline {
+                    let gathered = self.vault.gather();
+                    if gathered.len() >= threshold as usize {
+                        break;
+                    }
+                    std::thread::yield_now();
+                }
+                let gathered = self.vault.gather();
+                if gathered.len() < threshold as usize {
+                    return Response::Err {
+                        message: format!(
+                            "entropy: só {} shades em custódia (precisa de {})",
+                            gathered.len(),
+                            threshold
+                        ),
+                    };
+                }
+                match entropy::ChaosKey::materialize(&gathered, threshold) {
+                    Ok(key) => {
+                        let hex = hex::encode(key.reveal().unwrap_or(&[]));
+                        Response::Ok {
+                            message: format!("entropy: segredo reconstruído: {hex}"),
+                        }
+                    }
+                    Err(e) => Response::Err {
+                        message: format!("entropy reconstruct: {e}"),
+                    },
+                }
+            }
+            Request::EntropyStatus => {
+                let count = self.vault.len();
+                let shades_hex: Vec<String> = self
+                    .vault
+                    .gather()
+                    .iter()
+                    .map(|s| format!("shade[{}]: {} bytes", s.index, s.shares.len()))
+                    .collect();
+                Response::Ok {
+                    message: format!(
+                        "entropy: {} shades em custódia\n{}",
+                        count,
+                        shades_hex.join("\n")
+                    ),
+                }
+            }
+            Request::Balance => {
+                let mut msg = format!(
+                    "ATP={} Enzymes={} Mycelia={} Spores={} Resilience={} (local)\n",
+                    self.ledger.balance(Nutrient::Atp),
+                    self.ledger.balance(Nutrient::Enzymes),
+                    self.ledger.balance(Nutrient::Mycelia),
+                    self.ledger.balance(Nutrient::Spores),
+                    self.ledger.balance(Nutrient::Resilience),
+                );
+                for (peer, (bals, clock)) in &self.remote_ledger {
+                    msg.push_str(&format!(
+                        "peer {}... (clock {clock}): ATP={} Enzymes={} Mycelia={} Spores={} Resilience={}\n",
+                        peer.short(),
+                        bals.get(&Nutrient::Atp).copied().unwrap_or(0),
+                        bals.get(&Nutrient::Enzymes).copied().unwrap_or(0),
+                        bals.get(&Nutrient::Mycelia).copied().unwrap_or(0),
+                        bals.get(&Nutrient::Spores).copied().unwrap_or(0),
+                        bals.get(&Nutrient::Resilience).copied().unwrap_or(0),
+                    ));
+                }
+                Response::Ok { message: msg.trim().to_string() }
+            }
+            Request::IonMigrate { ion, target } => {
+                let ion_name = ion.clone();
+                if !self.chambers.contains_key(&ion_name) {
+                    return Response::Err { message: format!("ion `{ion_name}` não está neste nó") };
+                }
+                let env = Envelope::IonOffer {
+                    ion: ion_name.clone(),
+                    host: self.gland.node_id(),
+                    charge: plasma::Charge::Positive,
+                    desired_replicas: 1,
+                    layers: Vec::new(),
+                };
+                if let Ok(bytes) = env.encode() {
+                    let _ = self.hyphae.broadcast_lattice(bytes);
+                }
+                self.ion_hosts.insert(ion_name.clone(), target);
+                Response::Ok { message: format!("ion `{ion_name}` offer enviado para migração") }
+            }
+            Request::Zones => {
+                let mut msg = String::new();
+                for (prefix, custodians) in &self.known_zones {
+                    msg.push_str(&format!("zone {}: {} custodians\n", prefix, custodians.len()));
+                    for c in custodians {
+                        msg.push_str(&format!("  {}\n", c.short()));
+                    }
+                }
+                if msg.is_empty() {
+                    msg = "nenhuma zona conhecida".into();
+                }
+                Response::Ok { message: msg.trim().to_string() }
+            }
             Request::Shutdown => Response::Ok {
                 message: "encerrando".into(),
             },
@@ -1195,12 +1478,18 @@ impl Organism {
         let mut duckdns_tick = tokio::time::interval(Duration::from_secs(300));
         let mut physarum_tick = tokio::time::interval(Duration::from_secs(5));
         let mut nostr_tick = tokio::time::interval(Duration::from_secs(45));
+        let mut metrics_tick = tokio::time::interval(Duration::from_secs(30));
+        let mut balance_tick = tokio::time::interval(Duration::from_secs(60));
+        let mut zone_tick = tokio::time::interval(Duration::from_secs(120));
         // Primeiro tick imediato já foi coberto na germinação; atrasa o próximo.
         seed_tick.tick().await;
         // DuckDNS: espera um pouco para ter listen addrs.
         duckdns_tick.tick().await;
         physarum_tick.tick().await;
         nostr_tick.tick().await;
+        metrics_tick.tick().await;
+        balance_tick.tick().await;
+        zone_tick.tick().await;
 
         if self.sporocarp {
             tracing::info!("sporocarp ativo — relay + DNS (se DUCKDNS_*) — sem UPnP");
@@ -1261,6 +1550,93 @@ impl Organism {
                     #[cfg(not(feature = "nostr-transport"))]
                     {
                         let _ = self.enable_nostr_transport;
+                    }
+                }
+
+                _ = metrics_tick.tick() => {
+                    let report = self.status_report();
+                    let mut prom = String::new();
+                    prom.push_str(&format!("# HELP mycelium_neighbors Número de vizinhos\n"));
+                    prom.push_str(&format!("# TYPE mycelium_neighbors gauge\n"));
+                    prom.push_str(&format!("mycelium_neighbors {}\n", report.neighbors));
+                    prom.push_str(&format!("# HELP mycelium_plots Plots no Spore Bank\n"));
+                    prom.push_str(&format!("# TYPE mycelium_plots gauge\n"));
+                    prom.push_str(&format!("mycelium_plots {}\n", report.plots));
+                    prom.push_str(&format!("# HELP mycelium_signals Signals no TheField\n"));
+                    prom.push_str(&format!("# TYPE mycelium_signals gauge\n"));
+                    prom.push_str(&format!("mycelium_signals {}\n", report.signals));
+                    prom.push_str(&format!("# HELP mycelium_ions Ions em órbita\n"));
+                    prom.push_str(&format!("# TYPE mycelium_ions gauge\n"));
+                    prom.push_str(&format!("mycelium_ions {}\n", report.ions.len()));
+                    prom.push_str(&format!("# HELP mycelium_atp Saldo de ATP\n"));
+                    prom.push_str(&format!("# TYPE mycelium_atp gauge\n"));
+                    prom.push_str(&format!("mycelium_atp {}\n", report.atp));
+                    prom.push_str(&format!("# HELP mycelium_enzymes Saldo de Enzymes\n"));
+                    prom.push_str(&format!("# TYPE mycelium_enzymes gauge\n"));
+                    prom.push_str(&format!("mycelium_enzymes {}\n", report.enzymes));
+                    prom.push_str(&format!("# HELP mycelium_mycelia Saldo de Mycelia\n"));
+                    prom.push_str(&format!("# TYPE mycelium_mycelia gauge\n"));
+                    prom.push_str(&format!("mycelium_mycelia {}\n", report.mycelia));
+                    prom.push_str(&format!("# HELP mycelium_spores Saldo de Spores\n"));
+                    prom.push_str(&format!("# TYPE mycelium_spores gauge\n"));
+                    prom.push_str(&format!("mycelium_spores {}\n", report.spores));
+                    prom.push_str(&format!("# HELP mycelium_resilience Saldo de Resilience\n"));
+                    prom.push_str(&format!("# TYPE mycelium_resilience gauge\n"));
+                    prom.push_str(&format!("mycelium_resilience {}\n", report.resilience));
+                    prom.push_str(&format!("# HELP mycelium_anastomoses Conexões totais formadas\n"));
+                    prom.push_str(&format!("# TYPE mycelium_anastomoses counter\n"));
+                    prom.push_str(&format!("mycelium_anastomoses {}\n", report.anastomoses));
+                    prom.push_str(&format!("# HELP mycelium_messages_in Mensagens gossip recebidas\n"));
+                    prom.push_str(&format!("# TYPE mycelium_messages_in counter\n"));
+                    prom.push_str(&format!("mycelium_messages_in {}\n", report.messages_in));
+                    prom.push_str(&format!("# HELP mycelium_messages_out Mensagens gossip enviadas\n"));
+                    prom.push_str(&format!("# TYPE mycelium_messages_out counter\n"));
+                    prom.push_str(&format!("mycelium_messages_out {}\n", report.messages_out));
+                    prom.push_str(&format!("# HELP mycelium_isotope_atoms Atoms no Nucleus\n"));
+                    prom.push_str(&format!("# TYPE mycelium_isotope_atoms gauge\n"));
+                    prom.push_str(&format!("mycelium_isotope_atoms {}\n", report.isotope_atoms));
+                    prom.push_str(&format!("# HELP mycelium_membrane Membrana atual\n"));
+                    prom.push_str(&format!("# TYPE mycelium_membrane gauge\n"));
+                    prom.push_str(&format!("mycelium_membrane{{membrane=\"{}\"}} 1\n", report.membrane));
+                    prom.push_str(&format!("# HELP mycelium_physarum_phase Fase Physarum\n"));
+                    prom.push_str(&format!("# TYPE mycelium_physarum_phase gauge\n"));
+                    prom.push_str(&format!("mycelium_physarum_phase{{phase=\"{}\"}} 1\n", report.physarum_phase));
+                    prom.push_str(&format!("# HELP mycelium_uptime_segundos Uptime do ledger (heartbeat)\n"));
+                    prom.push_str(&format!("# TYPE mycelium_uptime_segundos counter\n"));
+                    prom.push_str(&format!("mycelium_uptime_hours 1\n"));
+                    let mut table = self.horizon.write().unwrap();
+                    table.set_metrics(prom);
+                }
+
+                _ = balance_tick.tick() => {
+                    let clock = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let mut balances = HashMap::new();
+                    for n in Nutrient::ALL {
+                        balances.insert(n, self.ledger.balance(n));
+                    }
+                    let env = Envelope::BalanceSync {
+                        node_id: self.gland.node_id(),
+                        balances,
+                        clock,
+                    };
+                    if let Ok(bytes) = env.encode() {
+                        let _ = self.hyphae.broadcast_lattice(bytes);
+                    }
+                }
+
+                _ = zone_tick.tick() => {
+                    if !self.state.ions.is_empty() {
+                        let prefix = format!("Qm{}", self.gland.node_id().short());
+                        let env = Envelope::ZoneAnnounce {
+                            prefix,
+                            custodian: self.gland.node_id(),
+                        };
+                        if let Ok(bytes) = env.encode() {
+                            let _ = self.hyphae.broadcast_lattice(bytes);
+                        }
                     }
                 }
 

@@ -2708,6 +2708,7 @@ dependencies = [
  "mycelium-core",
  "mycelium-nostr",
  "mycelium-nostr-transport",
+ "mycelium-pqc",
  "rand 0.8.7",
  "reqwest",
  "serde",
@@ -4057,6 +4058,7 @@ dependencies = [
  "http",
  "http-body-util",
  "mycelium-core",
+ "mycelium-sporebank",
  "reqwest",
  "serde",
  "serde_json",
@@ -4064,6 +4066,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "vacuum",
 ]
 
 [[package]]

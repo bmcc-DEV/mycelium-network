@@ -2,11 +2,14 @@
 //!
 //! Wire format atual: `{"v":1,"msg":{...}}`. Decodifica também Envelope nu (legado).
 
+use entropy::Shade;
 use giggs::Plot;
 use inertia::{Momentum, Vector};
 use isotope::Atom;
-use mycelium_core::{ContentId, NodeId};
+use mycelium_core::{ContentId, NodeId, Nutrient};
+use plasma::Charge;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thefield::Signal;
 
 /// Versão do wire format suportada por este binário.
@@ -42,6 +45,53 @@ pub enum Envelope {
     DecayQuery { key: String, asker: NodeId },
     /// Resposta Isotope a um Decay.
     DecayReply { key: String, atom: Atom },
+    /// Oferta de Shade Entropy para custódia remota.
+    ShadeOffer {
+        shade: Shade,
+        custodian: NodeId,
+        from: NodeId,
+    },
+    /// Pedido de coleta de Shades.
+    ShadeRequest {
+        requester: NodeId,
+        threshold: u8,
+    },
+    /// Sincronia de ledger Nutrient (CRDT LWW).
+    BalanceSync {
+        node_id: NodeId,
+        balances: HashMap<Nutrient, u64>,
+        clock: u64,
+    },
+    /// Oferta de Ion para migração (carga positiva).
+    IonOffer {
+        ion: String,
+        host: NodeId,
+        charge: Charge,
+        desired_replicas: u32,
+        layers: Vec<ContentId>,
+    },
+    /// Aceitação de migração.
+    IonAccept {
+        ion: String,
+        acceptor: NodeId,
+    },
+    /// Dados do Ion para migrar.
+    IonMigrate {
+        ion: String,
+        void: vacuum::Void,
+        layers: Vec<ContentId>,
+    },
+    /// Ion pronto no destino.
+    IonReady {
+        ion: String,
+        node: NodeId,
+        upstream: String,
+    },
+    /// Anúncio de zona de crescimento.
+    ZoneAnnounce {
+        prefix: String,
+        custodian: NodeId,
+    },
 }
 
 /// Frame versionado no fio.
