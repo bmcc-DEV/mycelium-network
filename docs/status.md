@@ -99,7 +99,19 @@ cargo test --all-features → 115 passed (com pqc-transport)
 
 ## Roadmap
 
-### Concluído nesta sessão
+### 🏆 Marco Histórico — 30 Jul 2026
+
+**Primeira conexão CGNAT real (Vivo) ↔ 5G via Nostr transport.**
+
+```
+casa (Vivo CGNAT) ──wss://nos.lol──► 5G (Claro/Tim)
+vizinhos = 1 em ambos os lados
+sow + recall: plot atravessou CGNAT → 5G sem VPS nem relay circuit
+```
+
+Testemunha: `docs/testes-realidade.md` (cenário 1A).
+
+## Concluído nesta sessão
 1. **Entropy gossip** — distribuir/coletar shades via Lattice Envelope ✅
 2. **PQC híbrido** — handshake pós-Noise com `blake3(noise_secret || pqc_secret)` ✅
 3. **Nutrient ledger CRDT** — `BalanceSync` gossip a cada 60s ✅

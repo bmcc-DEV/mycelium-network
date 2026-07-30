@@ -1,6 +1,49 @@
 # Testes de Realidade — Mycelium Network
 
-## Setup básico (pré-requisito para todos)
+## ✅ 30 Jul 2026 — CGNAT real (Vivo) ↔ 5G
+
+**Resultado:** CONECTADO. Primeira mesh CGNAT↔CGNAT via Nostr transport.
+
+```
+casa: Vivo CGNAT (2804:7f7:e03a:be::/64)
+5g:   Claro/Tim (2804:214:8857:b801::/64)
+
+nostr-relay: wss://nos.lol
+vizinhos:    1 (bidirecional)
+sow → recall: plot "ponte-5g" entregue com sucesso
+tempo descoberta: ~4s (45s tick + handshake)
+```
+
+**Comandos usados:**
+
+```bash
+# Terminal 1 — Casa (Vivo CGNAT)
+./target/debug/mycelium --home ~/mycelium-casa daemon --no-mdns --nostr-transport
+
+# Terminal 2 — 5G (mesmo notebook, rede diferente)
+mkdir -p /tmp/mycelium-5g
+./target/debug/mycelium --home /tmp/mycelium-5g daemon --no-mdns --nostr-transport
+
+# ~60s depois:
+# vizinhos: 1
+
+# Casa → 5G
+./target/debug/mycelium --home ~/mycelium-casa sow \
+  --message "ponte-5g" --path "teste.txt" \
+  --content "Conexao CGNAT direta sobre Nostr"
+# Qm3668c54ee70a63c06843b1b967d0462a9a76ad78d136a2c4a1f1980e101a0e07
+
+./target/debug/mycelium --home /tmp/mycelium-5g recall \
+  --plot Qm3668c54ee70a63c06843b1b967d0462a9a76ad78d136a2c4a1f1980e101a0e07
+# ✅ plot 3668c54e — "ponte-5g" (1 leaves)
+```
+
+**Comprovação:** sem VPS, sem circuit relay, sem mDNS, sem STUN.
+Dependência externa: único relay Nostr público (`wss://nos.lol`).
+
+---
+
+## Setup básico
 
 ```bash
 # Build com tudo
