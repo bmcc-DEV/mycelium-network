@@ -95,7 +95,7 @@ pub async fn serve_horizon(
         .route("/metrics", any(metrics))
         .route("/plots/{id}", any(serve_plot))
         .route("/layers/{id}", any(serve_layer))
-        .route("/{*path}", any(proxy))
+        .fallback(any(proxy))
         .layer(from_fn(rate_gate))
         .with_state(table);
 
@@ -273,7 +273,7 @@ async fn proxy(State(table): State<HorizonTable>, req: Request) -> Response {
         .unwrap_or("")
         .to_string();
 
-    if ion.is_empty() || ion == "health" || ion == "metrics" {
+    if ion.is_empty() {
         return StatusCode::NOT_FOUND.into_response();
     }
 
