@@ -120,19 +120,17 @@ Testemunha: `docs/testes-realidade.md` (cenário 1A).
 6. **Growth Zones** — `ZoneAnnounce` gossip + `mycelium zones` ✅
 7. **Prometheus /metrics** — endpoint + tick 30s ✅
 
-### Pendentes de teste
-| Item | Status |
-|------|--------|
-| PQC em conexão real | ❌ Só teste unitário do handshake |
-| CDN entre nós | ❌ `/plots/{id}` de um nó pro outro não testado |
-| Estresse prolongado (1h+) | ❌ Só 2min |
-| Growth Zones runtime | 🟡 Código ok, nunca observado |
-| Entropy gossip entre nós reais | 🟡 Testado local, não entre 2+ nós |
-| CandidateRelay 5G real | 🟡 Cifragem local OK, casa↔5G não rodou |
+### O que ainda NÃO foi testado
+| Item | Status | Por que |
+|------|--------|--------|
+| PQC em conexão real | ❌ | Handshake híbrido só em teste unitário. Não wireado no Noise |
+| Estresse prolongado (1h+) | ❌ | Só 2min com 3 nós. Rode: `bash scripts/stress-test.sh 60 5` |
+| Growth Zones runtime | ✅ | `ZoneAnnounce` replicado entre 5 nós. `mycelium zones` mostra prefixos |
+| CandidateRelay casa↔5G | 🟡 | Protocolo testado local. Entre redes reais não rodou |
 
 ### Próximos passos sugeridos
-- **PQC transport real** (Transport trait TCP → KEM → yamux)
+- **PQC transport real** (implementar Transport trait TCP → KEM → yamux)
 - **Plasma reactive scaling** (réplicas automáticas conforme carga)
-- **Prometheus alerts** integrados
+- **Prometheus alerts** (alertmanager rules)
 - **Nutrient ledger com consenso** (Raft/PBFT leve entre esporocarps)
 - **Growth Zones** com DHT overlay (distance XOR routing)
