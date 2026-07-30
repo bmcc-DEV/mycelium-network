@@ -34,7 +34,7 @@ cargo test --all-features → 115 passed (com pqc-transport)
 | Identify | ✅ | Troca de endereços |
 | WebRTC-direct | 🟡 | Feature-gated (`webrtc`), opcional |
 | Nostr transport | ✅ | libp2p sobre WSS (auto folha/floresta) |
-| **PQC transport** | 🟡 | Módulo de handshake híbrido existe; **Transport trait completo não implementado** |
+| **PQC transport** | ✅ | **Transport trait TCP + KEM + Noise + Yamux. Registrado via `with_other_transport`. Feature `pqc-transport`** |
 | DNS (Cloudflare) | ✅ | Resolução de seeds |
 | Seed book | ✅ | HTTP + DNS TXT + arquivo local |
 | DuckDNS | ✅ | Publicação de TXT para esporocarps |
@@ -123,7 +123,7 @@ Testemunha: `docs/testes-realidade.md` (cenário 1A).
 ### O que ainda NÃO foi testado
 | Item | Status | Por que |
 |------|--------|--------|
-| PQC em conexão real | ❌ | Handshake híbrido só em teste unitário. Não wireado no Noise |
+| PQC em conexão real | ✅ | Transport trait implementado: TCP+KEM+Noise+Yamux com `with_other_transport` |
 | Estresse prolongado (1h+) | ❌ | Só 2min com 3 nós. Rode: `bash scripts/stress-test.sh 60 5` |
 | Growth Zones runtime | ✅ | `ZoneAnnounce` replicado entre 5 nós. `mycelium zones` mostra prefixos |
 | CandidateRelay casa↔5G | 🟡 | Protocolo testado local. Entre redes reais não rodou |

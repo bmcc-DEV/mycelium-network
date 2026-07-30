@@ -23,6 +23,7 @@ rand = { version = "0.8", optional = true }
 mycelium-nostr-transport = { workspace = true, optional = true }
 mycelium-nostr = { workspace = true, optional = true }
 mycelium-pqc = { workspace = true, optional = true }
+tokio-util = { version = "0.7", features = ["compat"], optional = true }
 
 [features]
 default = []
@@ -31,5 +32,5 @@ webrtc = ["dep:libp2p-webrtc", "dep:rand"]
 # Transporte libp2p sobre Nostr (CandidateRelay + backchannel).
 nostr-transport = ["dep:mycelium-nostr-transport", "dep:mycelium-nostr"]
 # Transporte PQC (ML-KEM-1024) como alternativa ao Noise.
-pqc-transport = ["dep:mycelium-pqc"]
+pqc-transport = ["dep:mycelium-pqc", "dep:tokio-util"]
 

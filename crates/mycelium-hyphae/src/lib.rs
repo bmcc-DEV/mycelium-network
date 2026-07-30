@@ -342,11 +342,15 @@ impl HyphaeNode {
         };
 
         #[cfg(feature = "pqc-transport")]
-        {
-            tracing::info!(
-                "PQC (ML-KEM-1024) disponível — híbrido pós-Noise via hyphae::pqc"
-            );
-        }
+        let builder = {
+            tracing::info!("transporte PQC (ML-KEM-1024) registado — TCP+KEM+Noise+Yamux");
+            builder
+                .with_other_transport(|key| {
+                    crate::pqc::build(key)
+                        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))
+                })
+                .map_err(|e| HyphaeError::Germination(e.to_string()))?
+        };
 
         let mut swarm = builder
             .with_dns_config(
