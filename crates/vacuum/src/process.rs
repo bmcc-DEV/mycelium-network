@@ -254,6 +254,10 @@ impl ChamberProcess {
         Ok(())
     }
 
+    pub fn void_layers(&self) -> &[String] {
+        &self.spec.void_layers
+    }
+
     pub fn decompose(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();

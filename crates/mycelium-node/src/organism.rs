@@ -1105,15 +1105,31 @@ impl Organism {
                     Ok(s) => s,
                     Err(_) => return Ok(()),
                 };
-                for lid in &layers {
-                    if !layer_store.has(lid) {
-                        self.request_layer(lid);
-                        return Ok(());
+                for (lid, data) in &layers {
+                    let p = layer_store.path_of(lid);
+                    if !p.exists() {
+                        let _ = std::fs::write(&p, data);
                     }
                 }
-                match vacuum::Chamber::suck_store(void, &layer_store, self.resources) {
-                    Ok(_chamber) => {
+                let missing: Vec<ContentId> = void.layers.iter().filter(|lid| !layer_store.has(lid)).copied().collect();
+                if !missing.is_empty() {
+                    for lid in &missing {
+                        self.request_layer(lid);
+                    }
+                    return Ok(());
+                }
+                let name = void.name.clone();
+                match vacuum::ChamberProcess::fruit_void(
+                    &self.mycelium_bin,
+                    &self.store.chambers_dir(),
+                    &void,
+                    &layer_store,
+                    &name,
+                    vacuum::FruitOptions::default(),
+                ) {
+                    Ok(proc) => {
                         let host = format!("sporocarp.mycelium/{}", self.gland.node_id().short());
+                        let upstream = proc.upstream.clone();
                         {
                             let mut table = self.horizon.write().unwrap();
                             table.expose(&host, singularity::Orbit {
@@ -1121,20 +1137,21 @@ impl Organism {
                                 node: self.gland.node_id(),
                                 mass: self.resources.cpu_cores as u64 * 10 + 1,
                                 resistance: 0,
-                                upstream: "".into(),
+                                upstream: upstream.clone(),
                             });
                         }
+                        self.chambers.insert(ion.clone(), proc);
                         let env = Envelope::IonReady {
                             ion: ion.clone(),
                             node: self.gland.node_id(),
-                            upstream: format!("http://127.0.0.1:{}/", self.state.horizon_port),
+                            upstream,
                         };
                         if let Ok(bytes) = env.encode() {
                             let _ = self.hyphae.broadcast_lattice(bytes);
                         }
-                        tracing::info!(%ion, "Ion migrado aceito");
+                        tracing::info!(%ion, "Ion migrado aceito — ChamberProcess frutificada");
                     }
-                    Err(e) => tracing::warn!(error = %e, "IonMigrate suck falhou"),
+                    Err(e) => tracing::warn!(error = %e, "IonMigrate fruit_void falhou"),
                 }
             }
             Envelope::IonReady { ion, node, upstream } => {
@@ -1399,21 +1416,38 @@ impl Organism {
             }
             Request::IonMigrate { ion, target } => {
                 let ion_name = ion.clone();
-                if !self.chambers.contains_key(&ion_name) {
-                    return Response::Err { message: format!("ion `{ion_name}` não está neste nó") };
+                let chamber = match self.chambers.get(&ion_name) {
+                    Some(c) => c,
+                    None => return Response::Err { message: format!("ion `{ion_name}` não está neste nó") },
+                };
+                // Extrai Void do chamber spec
+                let void = vacuum::Void {
+                    name: ion_name.clone(),
+                    layers: chamber.void_layers().iter().filter_map(|s| s.parse::<ContentId>().ok()).collect(),
+                    entrypoint: "chamber-serve".into(),
+                };
+                // Lê layers do LayerStore
+                let layer_store = match vacuum::LayerStore::open(self.store.layers_dir()) {
+                    Ok(s) => s,
+                    Err(_) => return Response::Err { message: "layer store indisponível".into() },
+                };
+                let mut layers_data = Vec::new();
+                for lid in &void.layers {
+                    if let Some(bytes) = layer_store.get(lid) {
+                        layers_data.push((*lid, bytes));
+                    }
                 }
-                let env = Envelope::IonOffer {
+                let n_layers = void.layers.len();
+                let env = Envelope::IonMigrate {
                     ion: ion_name.clone(),
-                    host: self.gland.node_id(),
-                    charge: plasma::Charge::Positive,
-                    desired_replicas: 1,
-                    layers: Vec::new(),
+                    void,
+                    layers: layers_data,
                 };
                 if let Ok(bytes) = env.encode() {
                     let _ = self.hyphae.broadcast_lattice(bytes);
                 }
                 self.ion_hosts.insert(ion_name.clone(), target);
-                Response::Ok { message: format!("ion `{ion_name}` offer enviado para migração") }
+                Response::Ok { message: format!("ion `{ion_name}` Void + {n_layers} layers enviado para migração") }
             }
             Request::Zones => {
                 let mut msg = String::new();

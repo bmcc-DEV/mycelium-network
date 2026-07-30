@@ -75,11 +75,11 @@ pub enum Envelope {
         ion: String,
         acceptor: NodeId,
     },
-    /// Dados do Ion para migrar.
+    /// Dados do Ion para migrar (inclui conteúdo das layers).
     IonMigrate {
         ion: String,
         void: vacuum::Void,
-        layers: Vec<ContentId>,
+        layers: Vec<(ContentId, Vec<u8>)>,
     },
     /// Ion pronto no destino.
     IonReady {
