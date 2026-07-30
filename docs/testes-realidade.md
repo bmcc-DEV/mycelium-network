@@ -43,6 +43,25 @@ Dependência externa: único relay Nostr público (`wss://nos.lol`).
 
 ---
 
+## ✅ 30 Jul 2026 — CandidateRelay backchannel cifrado
+
+**Resultado:** Mensagem NIP-44 enviada e recebida com sucesso entre dois GhostIDs.
+
+```bash
+# Terminal A — escuta
+mycelium --home /tmp/a candidate listen --loop
+# → "listen: announced=4 inbox=2"
+# → "← 888271e08390… : NIP-44 cifrado de B para A"
+
+# Terminal B — envia
+mycelium --home /tmp/b candidate send --to <ghost_A> -m "NIP-44 cifrado de B para A"
+# → "enviado event 8b1c2f24..."
+```
+
+**Comprovação:** Cifragem NIP-44 fim-a-fim entre GhostIDs efêmeros. Roteiro: `candidate whoami` → `candidate listen --loop` → `candidate send --to <ghost> -m "msg"`.
+
+---
+
 ## Setup básico
 
 ```bash
