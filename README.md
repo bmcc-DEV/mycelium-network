@@ -156,6 +156,10 @@ cargo test --workspace
 
 ## Licença
 
-MIT OR Apache-2.0 — veja [LICENSE-MIT](LICENSE-MIT) e [LICENSE-APACHE](LICENSE-APACHE).
+**GNU Affero General Public License v3.0** — veja [LICENSE](LICENSE).
+
+Copyleft forte com cláusula de rede: quem distribuir ou oferecer o Mycelium
+como serviço pela rede é obrigado a publicar o código-fonte das modificações.
+Fork para lucrar sem devolver o código viola a licença.
 
 > *"O futuro da computação não é construir castelos de silício. É plantar florestas de código."*
