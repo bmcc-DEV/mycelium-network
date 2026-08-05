@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mycelium Seeds — Catálogo de Seeds</title>
+    <meta name="description" content="Catálogo soberano de seeds da rede Mycelium: públicas (bootstrap global) e privadas (LAN/invite).">
+    <style>
+        :root {
+            --bg: #0d1117; --bg-subtle: #161b22; --bg-inset: #010409;
+            --border: #30363d; --border-muted: #21262d;
+            --fg: #e6edf3; --fg-muted: #8b949e; --fg-subtle: #6e7681;
+            --accent: #2f81f7; --green: #3fb950; --red: #f85149; --orange: #d29922; --purple: #bc8cff;
+            --green-bg: rgba(63,185,80,.15); --orange-bg: rgba(210,153,34,.15);
+            --accent-muted: rgba(47,129,247,.15); --red-bg: rgba(248,81,73,.15);
+            --radius: 6px;
+            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: var(--font); background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.5; }
+        a { color: var(--accent); text-decoration: none; }
+        code, .mono { font-family: var(--mono); font-size: 12px; }
+
+        .header {
+            background: var(--bg-subtle); border-bottom: 1px solid var(--border-muted);
+            padding: 0 24px; height: 60px; display: flex; align-items: center; gap: 20px;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .header .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--fg); text-decoration: none; }
+        .header .logo .mark { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center;
+            background: linear-gradient(135deg, var(--accent), var(--purple)); font-size: 14px; }
+        .nav { display: flex; gap: 4px; margin-left: 12px; }
+        .nav a { color: var(--fg-muted); padding: 7px 12px; border-radius: var(--radius); font-size: 14px; }
+        .nav a:hover { color: var(--fg); background: var(--bg-inset); text-decoration: none; }
+        .nav a.active { color: var(--fg); background: var(--bg-inset); border-bottom: 2px solid var(--accent); border-radius: var(--radius) var(--radius) 0 0; }
+        .header .spacer { flex: 1; }
+        .wrap { max-width: 1080px; margin: 0 auto; padding: 24px; }
+
+        .card { background: var(--bg-subtle); border: 1px solid var(--border-muted); border-radius: var(--radius); margin-bottom: 16px; }
+        .box-head { padding: 12px 16px; border-bottom: 1px solid var(--border-muted); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .box-head h2 { font-size: 14px; font-weight: 600; }
+        .box-body { padding: 16px; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px;
+            font-weight: 600; border-radius: var(--radius); border: 1px solid var(--border);
+            background: #21262d; color: var(--fg); cursor: pointer; transition: 0.15s; font-family: var(--font);
+        }
+        .btn:hover { background: #30363d; }
+        .btn.primary { background: var(--green); border-color: rgba(46,160,67,.5); color: #fff; }
+        .btn.primary:hover { background: #2ea043; }
+        .btn.danger { color: var(--red); border-color: rgba(248,81,73,.4); background: var(--red-bg); }
+
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; margin-bottom: 20px; }
+        .stat { background: var(--bg-subtle); border: 1px solid var(--border-muted); border-radius: var(--radius); padding: 12px 16px; }
+        .stat .label { font-size: 12px; color: var(--fg-muted); }
+        .stat .value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+
+        .chip { display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid var(--border); }
+        .chip.pub { color: var(--green); border-color: rgba(63,185,80,.4); background: var(--green-bg); }
+        .chip.priv { color: var(--orange); border-color: rgba(210,153,34,.4); background: var(--orange-bg); }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; font-size: 12px; color: var(--fg-muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border-muted); }
+        td { padding: 10px; border-bottom: 1px solid var(--border-muted); font-size: 13px; vertical-align: top; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+        td.name { font-weight: 600; }
+        td.maddr { font-family: var(--mono); font-size: 11px; color: var(--accent); word-break: break-all; }
+
+        form .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid .full { grid-column: 1 / -1; }
+        label { display: block; font-size: 12px; color: var(--fg-muted); margin-bottom: 4px; }
+        input, select {
+            width: 100%; padding: 7px 10px; background: var(--bg-inset); border: 1px solid var(--border);
+            border-radius: var(--radius); color: var(--fg); font-size: 13px; font-family: var(--font); outline: none;
+        }
+        input:focus, select:focus { border-color: var(--accent); }
+        .checkbox { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .checkbox input { width: auto; }
+
+        .hint { background: var(--accent-muted); border: 1px solid rgba(47,129,247,.3); border-radius: var(--radius);
+            padding: 12px 14px; font-size: 13px; margin-bottom: 16px; }
+        .hint code { color: var(--accent); }
+        .empty { color: var(--fg-muted); text-align: center; padding: 24px; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--fg); color: var(--bg-inset); padding: 10px 20px; border-radius: var(--radius);
+            font-weight: 600; font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 1000; }
+        .toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+
+    <header class="header">
+        <a href="/store/" class="logo"><span class="mark">🍄</span> Mycelium</a>
+        <nav class="nav">
+            <a href="/store/">Launcher</a>
+            <a href="#" onclick="return false" class="active">Seeds</a>
+            <a href="/src/">Código</a>
+        </nav>
+        <span class="spacer"></span>
+    </header>
+
+    <div class="wrap">
+        <div class="hint">
+            <strong>Endpoint de bootstrap soberano</strong> (substitui o GitHub):
+            <code id="bootUrl">http://&lt;nó&gt;/seeds/api/public</code>
+            — usa em <code>mycelium daemon --public-bootstrap --bootstrap-url &lt;url&gt;</code>
+        </div>
+
+        <div class="stats">
+            <div class="stat"><div class="label">Seeds públicas</div><div class="value ok" id="statPub">0</div></div>
+            <div class="stat"><div class="label">Seeds privadas</div><div class="value warn" id="statPriv">0</div></div>
+        </div>
+
+        <div class="card">
+            <div class="box-head">
+                <h2>Catálogo de seeds</h2>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn" onclick="toggleForm()">➕ Adicionar</button>
+                    <button class="btn" onclick="loadAll()">↻</button>
+                </div>
+            </div>
+            <div class="box-body" id="formWrap" style="display:none; border-bottom:1px solid var(--border-muted);">
+                <form onsubmit="return addSeed(event)">
+                    <div class="grid">
+                        <div><label>Nome</label><input id="f-name" required></div>
+                        <div><label>Multiaddr</label><input id="f-maddr" class="mono" required placeholder="/ip4/1.2.3.4/tcp/4001/p2p/12D3Koo..."></div>
+                        <div><label>Visibilidade</label>
+                            <select id="f-vis"><option value="public">public</option><option value="private">private</option></select>
+                        </div>
+                        <div><label>Membrana</label>
+                            <select id="f-membrane"><option value="">(auto)</option>
+                                <option>esporocarp</option><option>floresta</option><option>raiz</option><option>folha</option>
+                            </select>
+                        </div>
+                        <div><label>Região</label><input id="f-region" placeholder="BR-SP"></div>
+                        <div><label>Operador</label><input id="f-operator"></div>
+                        <div class="full">
+                            <label class="checkbox"><input type="checkbox" id="f-relay"> opera como circuit relay v2</label>
+                            <label class="checkbox"><input type="checkbox" id="f-verified"> inbound verificado</label>
+                        </div>
+                    </div>
+                    <button class="btn primary" style="margin-top:12px;" type="submit">Salvar seed</button>
+                </form>
+            </div>
+            <div class="box-body">
+                <table>
+                    <thead><tr><th>Nome</th><th>Multiaddr</th><th>Visibilidade</th><th>Meta</th><th></th></tr></thead>
+                    <tbody id="seedRows"><tr><td colspan="5" class="empty">A carregar…</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const API = '/seeds/api';
+        let catalog = { seeds: [] };
+
+        function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2400); }
+        function $(id) { return document.getElementById(id); }
+
+        async function loadAll() {
+            try {
+                const r = await fetch(API);
+                if (!r.ok) throw new Error('offline');
+                catalog = await r.json();
+                render();
+            } catch (e) { toast('Catálogo offline — daemon não está a rodar?'); }
+        }
+
+        function visChip(v) { return v === 'public'
+            ? '<span class="chip pub">public</span>' : '<span class="chip priv">private</span>'; }
+
+        function render() {
+            const seeds = catalog.seeds || [];
+            const pub = seeds.filter(s => s.visibility === 'public').length;
+            const priv = seeds.filter(s => s.visibility === 'private').length;
+            $('statPub').textContent = pub;
+            $('statPriv').textContent = priv;
+            $('seedRows').innerHTML = seeds.length ? seeds.map(s => {
+                const meta = [
+                    s.membrane && 'membrana ' + s.membrane,
+                    s.region && s.region,
+                    s.operator && s.operator,
+                    s.relay && 'relay',
+                    s.verified ? 'inbound ✓' : 'inbound ✗'
+                ].filter(Boolean).join(' · ');
+                return `<tr>
+                    <td class="name">${s.name}<br><span class="mono" style="color:var(--fg-subtle)">${s.id}</span></td>
+                    <td class="maddr">${s.multiaddr}</td>
+                    <td>${visChip(s.visibility)}</td>
+                    <td style="color:var(--fg-muted); font-size:12px;">${meta}</td>
+                    <td><button class="btn danger" onclick="removeSeed('${s.id}')">Remover</button></td>
+                </tr>`;
+            }).join('') : '<tr><td colspan="5" class="empty">Nenhuma seed no catálogo.</td></tr>';
+        }
+
+        function toggleForm() { $('formWrap').style.display = $('formWrap').style.display === 'none' ? 'block' : 'none'; }
+
+        async function addSeed(ev) {
+            ev.preventDefault();
+            const body = {
+                id: '', name: $('f-name').value, multiaddr: $('f-maddr').value,
+                visibility: $('f-vis').value, membrane: $('f-membrane').value || null,
+                region: $('f-region').value || null, operator: $('f-operator').value || null,
+                relay: $('f-relay').checked, verified: $('f-verified').checked,
+                last_seen: null, notes: null
+            };
+            try {
+                const r = await fetch(API + '/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'erro');
+                toast('Seed adicionada!'); $('formWrap').style.display = 'none'; ev.target.reset(); loadAll();
+            } catch (e) { toast('Erro: ' + e.message); }
+            return false;
+        }
+
+        async function removeSeed(id) {
+            try {
+                const r = await fetch(API + '/remove/' + id, { method: 'POST' });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'erro');
+                toast('Seed removida'); loadAll();
+            } catch (e) { toast('Erro: ' + e.message); }
+        }
+
+        loadAll();
+    </script>
+</body>
+</html>

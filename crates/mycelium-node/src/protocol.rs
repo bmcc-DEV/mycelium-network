@@ -92,6 +92,10 @@ pub enum Envelope {
         prefix: String,
         custodian: NodeId,
     },
+    /// Transferência assinada de nutrientes (Micelial Value Layer, GhostID).
+    ValueTransfer {
+        tx: mycelium_nutrients::SignedTransfer,
+    },
 }
 
 /// Frame versionado no fio.

@@ -75,8 +75,11 @@ Giggs sow Plot → Spore Bank (disco + DHT) → gossip hifas
 | `recall` | Lê Plot local; DHT ou `--qel --nostr` (relays) |
 | `bootstrap` | Dial explícito a um peer remoto |
 | `seeds list/add/fetch` | Seed book (bootstrap público) |
+| `seeds catalog list/add/remove/export` | Catálogo estruturado de seeds públicas/privadas (`{home}/seeds/catalog.json`) + export para mainnet.txt |
 | `isotope-put` / `isotope-get` | Estado Isotope (anel 4 + Decay pelas hifas) |
 | `deploy` | One-shot: sow → signal → URL do Event Horizon |
+| `store list/caps/launch/publish` | App Store / Steam P2P de software antigo e emulação (QEMU, MAME, RetroArch, WASM) |
+| `repo publish/clone/list` | Distribuição de código soberana: publica a árvore como Plot multi-leaf (DHT + gossip) e reconstrói em qualquer nó — sem GitHub |
 | `shutdown` | Hiberna o daemon (estado fica em disco) |
 
 ## Crates
@@ -88,7 +91,8 @@ Giggs sow Plot → Spore Bank (disco + DHT) → gossip hifas
 | `mycelium-pheromones` | Identidade ed25519 |
 | `mycelium-nutrients` | Ledger ATP/Enzymes/Mycelia/Spores/Resilience |
 | `mycelium-sporebank` | Plots em disco + chaves DHT |
-| `mycelium-node` | Daemon, protocolo Lattice, socket de controle |
+| `mycelium-store` | App Store P2P, manifesto de software/ROM, motor de emulação QEMU/MAME/RetroArch |
+| `mycelium-node` | Daemon, protocolo Lattice, socket de controle, ion `src` (browser de código soberano), ion `seeds` (catálogo público/privado) |
 | `giggs` … `plasma` | Componentes do Lattice |
 | `mycelium-cli` | Binário `mycelium` |
 

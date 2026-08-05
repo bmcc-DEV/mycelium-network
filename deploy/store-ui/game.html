@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mycelium Store — Página do Jogo</title>
+    <meta name="description" content="Detalhes, emulação e download P2P de um jogo retrô preservado na rede Mycelium.">
+    <meta name="robots" content="index, follow">
+    <meta property="og:type" content="website">
+
+    <!-- Fontes locais do sistema (sem CDN externo) -->
+    <style>
+        :root {
+            --font-display: system-ui, -apple-system, 'Segoe UI', Ubuntu, 'Helvetica Neue', Arial, sans-serif;
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+            --bg-dark: #090c10;
+            --bg-card: rgba(18, 24, 38, 0.75);
+            --accent-green: #00ff88;
+            --accent-cyan: #00e5ff;
+            --accent-purple: #9d4edd;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --border-glow: rgba(0, 255, 136, 0.3);
+            --radius-lg: 16px;
+            --radius-md: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-display); }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(0, 255, 136, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(157, 78, 221, 0.05) 0%, transparent 40%);
+            background-attachment: fixed;
+            padding-bottom: 60px;
+        }
+
+        code, pre, .mono { font-family: var(--font-mono); }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            background: rgba(13, 17, 23, 0.65);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand { display: flex; align-items: center; gap: 14px; }
+        .brand-logo { font-size: 32px; filter: drop-shadow(0 0 10px var(--accent-green)); }
+
+        .brand-title h1 {
+            font-size: 22px;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-title p { font-size: 12px; color: var(--text-secondary); }
+
+        .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 8px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            transition: all 0.2s ease;
+        }
+
+        .back-link:hover { color: var(--accent-green); border-color: var(--border-glow); }
+
+        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+
+        .game-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .game-header {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+            margin-bottom: 28px;
+            flex-wrap: wrap;
+        }
+
+        .cover {
+            width: 240px;
+            height: 320px;
+            border-radius: var(--radius-md);
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(157, 78, 221, 0.15));
+            border: 1px solid var(--border-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .cover img { width: 100%; height: 100%; object-fit: cover; }
+        .cover .cover-fallback { font-size: 64px; }
+
+        .game-title { font-size: 34px; font-weight: 900; margin-bottom: 6px; }
+
+        .game-meta {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 12px 0 16px;
+        }
+
+        .meta-chip {
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .chip-snes { background: rgba(157, 78, 221, 0.2); color: #d8b4fe; border: 1px solid rgba(157, 78, 221, 0.4); }
+        .chip-msdos { background: rgba(0, 229, 255, 0.2); color: #7dd3fc; border: 1px solid rgba(0, 229, 255, 0.4); }
+        .chip-mame { background: rgba(0, 255, 136, 0.2); color: #6ee7b7; border: 1px solid rgba(0, 255, 136, 0.4); }
+        .chip-neutral { background: rgba(255, 255, 255, 0.08); color: var(--text-secondary); border: 1px solid var(--border-color); }
+        .chip-ok { background: rgba(0, 229, 255, 0.2); color: #7dd3fc; border: 1px solid rgba(0, 229, 255, 0.4); }
+
+        .game-desc { color: var(--text-secondary); font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
+
+        .action-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: var(--radius-md);
+            font-weight: 800;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            color: #000;
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        .btn-primary:hover { transform: translateY(-2px); }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+
+        .specs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 28px;
+        }
+
+        .spec-box {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: var(--radius-md);
+            padding: 14px;
+        }
+
+        .spec-box .label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+        .spec-box .value { font-size: 14px; font-weight: 700; margin-top: 4px; word-break: break-all; }
+
+        .error-box {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .error-box h2 { color: var(--text-primary); margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="brand-logo">🍄</div>
+            <div class="brand-title">
+                <h1>MYCELIUM RETRO STORE</h1>
+                <p>Substrato P2P — Steam & App Store de Hardware Legado</p>
+            </div>
+        </div>
+        <a class="back-link" href="/store/">← Voltar à Loja</a>
+    </header>
+
+    <div class="container">
+        <div id="content">
+            <div class="error-box">
+                <div class="emu-loader"></div>
+                <h2>Carregando Spore...</h2>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SPORE_ID = '__SPORE_ID__';
+        const API_BASE = '/api/store';
+
+        function platformChip(platform) {
+            const map = {
+                SNES: { cls: 'chip-snes', name: 'Super Nintendo (16-bit)' },
+                NES: { cls: 'chip-snes', name: 'Nintendo Entertainment System' },
+                N64: { cls: 'chip-snes', name: 'Nintendo 64' },
+                GameBoyAdvance: { cls: 'chip-snes', name: 'Game Boy Advance' },
+                MegaDrive: { cls: 'chip-snes', name: 'Sega Genesis / Mega Drive' },
+                MSDOS: { cls: 'chip-msdos', name: 'MS-DOS PC' },
+                Windows95: { cls: 'chip-msdos', name: 'Windows 95 PC' },
+                Windows98: { cls: 'chip-msdos', name: 'Windows 98 PC' },
+                WindowsXP: { cls: 'chip-msdos', name: 'Windows XP PC' },
+                ArcadeMame: { cls: 'chip-mame', name: 'MAME Arcade Machine' },
+                NeoGeo: { cls: 'chip-mame', name: 'SNK NeoGeo' },
+                PowerPCMac: { cls: 'chip-mame', name: 'Apple Macintosh PowerPC' },
+                Amiga: { cls: 'chip-mame', name: 'Commodore Amiga' },
+                SunOSSPARC: { cls: 'chip-mame', name: 'Sun Microsystems SPARCstation' },
+                NativeSystem: { cls: 'chip-mame', name: 'Sistema Nativo Host' }
+            };
+            return map[platform] || { cls: 'chip-neutral', name: platform };
+        }
+
+        function engineLabel(spore) {
+            const m = spore.execution_matrix;
+            const engineNames = {
+                QEMU: 'QEMU', MAME: 'MAME', RetroArchLibretro: 'RetroArch',
+                Native: 'Nativo', WebAssembly: 'WASM', P2PCloudStream: 'P2P Stream'
+            };
+            let label = engineNames[m.recommended] || m.recommended;
+            if (m.libretro_core) label += ' (' + m.libretro_core + ')';
+            if (m.qemu_config) label += ' [' + m.qemu_config.arch + ']';
+            return label;
+        }
+
+        function qemuArch(spore) {
+            return spore.execution_matrix.qemu_config ? spore.execution_matrix.qemu_config.arch : 'N/A';
+        }
+
+        function contentIdHex(spore) {
+            if (spore.content_id && typeof spore.content_id === 'object' && spore.content_id.hex) {
+                return '0x' + spore.content_id.hex.slice(0, 24) + '…';
+            }
+            return spore.content_id || 'Qm…';
+        }
+
+        function licenseLabel(spore) {
+            const map = {
+                shareware: 'Shareware', freeware: 'Freeware', open_source: 'Open Source',
+                public_domain: 'Domínio Público', proprietary: 'Copyright (BYOR)'
+            };
+            const key = spore.license || 'proprietary';
+            const cls = key === 'proprietary' ? 'chip-neutral' : 'chip-ok';
+            return `<span class="meta-chip ${cls}">© ${map[key] || key}</span>`;
+        }
+
+        async function loadSpore() {
+            const content = document.getElementById('content');
+            try {
+                const r = await fetch(`${API_BASE}/spores/${SPORE_ID}`);
+                if (!r.ok) throw new Error('Spore não encontrado');
+                const spore = await r.json();
+                const chip = platformChip(spore.platform);
+                const engine = engineLabel(spore);
+                const cover = spore.cover_image_url
+                    ? `<img src="${spore.cover_image_url}" alt="${spore.title}" loading="lazy">`
+                    : '<div class="cover-fallback">🎮</div>';
+
+                document.title = `${spore.title} — Mycelium Store`;
+                content.innerHTML = `
+                    <div class="game-card">
+                        <div class="game-header">
+                            <div class="cover">${cover}</div>
+                            <div style="flex: 1; min-width: 260px;">
+                                <div class="game-title">${spore.title}</div>
+                                <div class="game-meta">
+                                    <span class="meta-chip ${chip.cls}">${chip.name}</span>
+                                    ${licenseLabel(spore)}
+                                    <span class="meta-chip chip-neutral">${spore.category}</span>
+                                    <span class="meta-chip chip-neutral">${spore.release_year}</span>
+                                    ${(spore.tags || []).map(t => `<span class="meta-chip chip-neutral">${t}</span>`).join('')}
+                                </div>
+                                <div class="game-desc">${spore.description || 'Sem descrição.'}</div>
+                                <div class="action-row">
+                                    <button class="btn btn-primary" onclick="launch('${spore.id}')">▶️ Jogar / Emular</button>
+                                    <button class="btn btn-secondary" onclick="showContent('${spore.id}')">📦 Conteúdo P2P</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="specs-grid">
+                            <div class="spec-box"><div class="label">Motor de Emulação</div><div class="value">${engine}</div></div>
+                            <div class="spec-box"><div class="label">Arquitetura</div><div class="value">${qemuArch(spore)}</div></div>
+                            <div class="spec-box"><div class="label">Desenvolvedor</div><div class="value">${spore.developer_or_publisher || 'Desconhecido'}</div></div>
+                            <div class="spec-box"><div class="label">Binário Principal</div><div class="value mono">${spore.main_binary_file || 'N/A'}</div></div>
+                            <div class="spec-box"><div class="label">RAM Mínima</div><div class="value">${spore.requirements ? spore.requirements.min_ram_mb + ' MB' : 'N/A'}</div></div>
+                            <div class="spec-box"><div class="label">ContentID (SporeBank)</div><div class="value mono" style="font-size: 11px;">${contentIdHex(spore)}</div></div>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                content.innerHTML = `
+                    <div class="error-box">
+                        <h2>Spore "${SPORE_ID}" não encontrado</h2>
+                        <p>Verifique se o daemon Mycelium está rodando e se o spore está publicado no catálogo.</p>
+                        <p style="margin-top:16px;"><a class="btn btn-secondary" href="/store/">← Voltar à Loja</a></p>
+                    </div>
+                `;
+            }
+        }
+
+        async function launch(id) {
+            try {
+                const r = await fetch(`${API_BASE}/spores/${id}/launch`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'launched') {
+                    alert(`▶ ${d.message}`);
+                    window.location.href = '/store/';
+                } else {
+                    alert('⚠ ' + (d.message || 'Falha ao iniciar emulador'));
+                }
+            } catch (e) {
+                alert('Erro ao conectar ao daemon: ' + e.message);
+            }
+        }
+
+        function showContent(id) {
+            alert(`📦 Conteúdo P2P de ${id}\n\nO binário é replicado via SporeBank (Kademlia DHT + Nostr NIP-94). Conecte-se a um seed node para baixar.\n\nSeedbook: mycelium network seedbook`);
+        }
+
+        loadSpore();
+    </script>
+</body>
+</html>

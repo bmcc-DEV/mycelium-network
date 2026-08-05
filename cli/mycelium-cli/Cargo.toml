@@ -24,6 +24,8 @@ tracing-subscriber = { workspace = true }
 directories = "5"
 axum = { workspace = true }
 mycelium-sporebank = { workspace = true }
+mycelium-store = { workspace = true }
+giggs = { workspace = true }
 hex = { workspace = true }
 blake3 = { workspace = true }
 

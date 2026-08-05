@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preservação e Emulação de Jogos MS-DOS via P2P e QEMU — Guia Técnico Mycelium</title>
+    <meta name="description" content="Guia completo de preservação digital de softwares e jogos MS-DOS de 1980-1995. Como executar DOOM (1993), Prince of Persia e Wolfenstein 3D via QEMU, WebAssembly e redes P2P descentralizadas.">
+    <meta name="keywords" content="emulador ms-dos online, preservacao de jogos antigos, doom 1993 qemu, prince of persia ms-dos, steam p2p retro, emulacao webassembly, qemu soundblaster16">
+    <meta name="author" content="SEO Content Strategist & Mycelium RetroLab">
+
+    <!-- Open Graph Metadata -->
+    <meta property="og:title" content="Preservação e Emulação de Jogos MS-DOS via P2P e QEMU">
+    <meta property="og:description" content="Como a Mycelium Store utiliza QEMU, WebAssembly e redes P2P para preservar e rodar softwares MS-DOS com som SoundBlaster16 original.">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="/store/api/store/covers/doom-1993.svg">
+
+    <!-- JSON-LD Structured Data for Google & AI Overviews (AEO) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "Preservação e Emulação de Jogos MS-DOS via P2P e QEMU",
+      "description": "Guia técnico detalhando a arquitetura de preservação digital e emulação de jogos MS-DOS históricos utilizando QEMU i386, WebAssembly e rede P2P Mycelium.",
+      "author": {
+        "@type": "Organization",
+        "name": "Mycelium RetroLab Inc."
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "Mycelium Store"
+      },
+      "datePublished": "2026-08-02",
+      "mainEntity": {
+        "@type": "SoftwareApplication",
+        "name": "Mycelium MS-DOS Engine",
+        "operatingSystem": "MS-DOS 6.22, QEMU i386, WebAssembly",
+        "applicationCategory": "GameApplication"
+      }
+    }
+    </script>
+
+    <!-- Fontes locais do sistema (sem CDN externo) -->
+    <style>
+        :root {
+            --font-display: system-ui, -apple-system, 'Segoe UI', Ubuntu, 'Helvetica Neue', Arial, sans-serif;
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+            --bg-dark: #090c10;
+            --bg-card: rgba(18, 24, 38, 0.85);
+            --accent-green: #00ff88;
+            --accent-cyan: #00e5ff;
+            --accent-orange: #ff9100;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: var(--font-display);
+            line-height: 1.7;
+            padding: 40px 20px;
+        }
+
+        .article-container {
+            max-width: 860px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            font-size: 34px;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+            line-height: 1.25;
+        }
+
+        .meta {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h2 {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--accent-cyan);
+            margin-top: 32px;
+            margin-bottom: 14px;
+        }
+
+        p {
+            margin-bottom: 20px;
+            color: #d1d5db;
+        }
+
+        code, pre {
+            font-family: var(--font-mono);
+            background: rgba(0, 0, 0, 0.5);
+            color: var(--accent-green);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        pre {
+            padding: 16px;
+            display: block;
+            overflow-x: auto;
+            margin: 20px 0;
+            border: 1px solid var(--border-color);
+        }
+
+        ul {
+            margin-bottom: 20px;
+            padding-left: 24px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        .btn-back {
+            display: inline-block;
+            margin-top: 30px;
+            padding: 10px 20px;
+            background: var(--accent-green);
+            color: #000;
+            font-weight: 700;
+            border-radius: 8px;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+
+    <article class="article-container">
+        <h1>Preservação Digital e Emulação de Jogos MS-DOS via P2P e QEMU</h1>
+        <div class="meta">
+            <span>Publicado em: <strong>02 de Agosto de 2026</strong></span> &bull; 
+            <span>Autor: <strong>SEO Content Strategist & Mycelium RetroLab</strong></span> &bull; 
+            <span>Tags: <code>MS-DOS</code> <code>QEMU</code> <code>WebAssembly</code> <code>P2P Preservação</code></span>
+        </div>
+
+        <p>
+            O ecossistema de computadores PC da década de 1980 e 1990 testemunhou a revolução dos softwares e jogos em ambiente <strong>MS-DOS</strong> (Microsoft Disk Operating System). Títulos históricos como <em>DOOM (1993)</em>, <em>Prince of Persia (1989)</em> e <em>Wolfenstein 3D (1992)</em> definiram as bases da indústria moderna de videogames.
+        </p>
+
+        <h2>1. O Desafio Técnico da Preservação de Hardware x86</h2>
+        <p>
+            Executar binários de 16-bit ou 32-bit em processadores modernos de 64-bit exige emulação de arquitetura física ou virtualização especializada. A arquitetura da <strong>Mycelium Network</strong> resolve essa barreira combinando três tecnologias principais:
+        </p>
+
+        <ul>
+            <li><strong>Emulação Virtualizada QEMU (i386 / x86_64)</strong>: Instancia uma VM com placa mãe PC clássica, chip de som SoundBlaster 16 e controladora gráfica VGA real.</li>
+            <li><strong>Compilação WebAssembly (WASM)</strong>: Permite a execução direta no navegador sem necessidade de instalação de softwares de terceiros.</li>
+            <li><strong>Distribuição P2P SporeBank (IPFS / Nostr NIP-94)</strong>: Garante que os arquivos binários e ROMs permaneçam imutáveis e acessíveis em uma malha distribuída.</li>
+        </ul>
+
+        <h2>2. Exemplo de Configuração de Emulação QEMU para MS-DOS</h2>
+        <p>
+            Abaixo está a estrutura de comando sintética gerada pelo motor <code>qemu_builder.rs</code> da Mycelium Store para subir uma máquina virtual MS-DOS otimizada:
+        </p>
+
+<pre><code>qemu-system-i386 \
+  -m 32 \
+  -M pc \
+  -cpu pentium \
+  -vga std \
+  -audio driver=default,model=sb16 \
+  -hda ./sporebank/plots/DOOM1.WAD \
+  -boot c</code></pre>
+
+        <h2>3. Catálogo MS-DOS Disponível na Mycelium Store</h2>
+        <p>
+            O catálogo descentralizado da loja inclui suporte nativo a:
+        </p>
+        <ul>
+            <li><strong>DOOM (1993 - id Software)</strong>: Suporte a som SoundBlaster 16 e taxas de quadro elevadas.</li>
+            <li><strong>Prince of Persia (1989 - Brøderbund)</strong>: Animação por rotoscopia e áudio sintético AdLib.</li>
+            <li><strong>Wolfenstein 3D (1992 - id Software)</strong>: Motor de raycasting 3D precursor de jogos FPS.</li>
+            <li><strong>Commander Keen (1990 - id Software)</strong>: Rolagem suave EGA de tela.</li>
+        </ul>
+
+        <a href="index.html" class="btn-back">← Voltar para a Mycelium Store</a>
+    </article>
+
+</body>
+</html>

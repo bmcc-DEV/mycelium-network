@@ -240,6 +240,20 @@ impl fmt::Display for Nutrient {
     }
 }
 
+impl std::str::FromStr for Nutrient {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "atp" => Ok(Nutrient::Atp),
+            "enzymes" => Ok(Nutrient::Enzymes),
+            "mycelia" => Ok(Nutrient::Mycelia),
+            "spores" => Ok(Nutrient::Spores),
+            "resilience" => Ok(Nutrient::Resilience),
+            _ => Err(format!("nutriente inválido: {}", s)),
+        }
+    }
+}
+
 /// Saúde de um corpo de frutificação.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Vitality {

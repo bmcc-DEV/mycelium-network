@@ -23,6 +23,7 @@ members = [
     "crates/isotope",
     "crates/entropy",
     "crates/plasma",
+    "crates/mycelium-store",
     "cli/mycelium-cli",
 ]
 
@@ -56,6 +57,7 @@ singularity = { path = "crates/singularity" }
 isotope = { path = "crates/isotope" }
 entropy = { path = "crates/entropy" }
 plasma = { path = "crates/plasma" }
+mycelium-store = { path = "crates/mycelium-store" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

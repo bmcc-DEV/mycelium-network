@@ -10,8 +10,10 @@ mycelium-core = { workspace = true }
 mycelium-hyphae = { workspace = true }
 mycelium-pheromones = { workspace = true }
 mycelium-nutrients = { workspace = true }
+mycelium-ghostid = { workspace = true }
 mycelium-sporebank = { workspace = true }
 mycelium-tropical = { workspace = true }
+mycelium-store = { workspace = true }
 giggs = { workspace = true }
 thefield = { workspace = true }
 inertia = { workspace = true }
@@ -28,6 +30,7 @@ futures = { workspace = true }
 tracing = { workspace = true }
 hex = { workspace = true }
 libp2p = { workspace = true }
+axum = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

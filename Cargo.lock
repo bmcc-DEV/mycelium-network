@@ -2645,6 +2645,7 @@ dependencies = [
  "blake3",
  "clap",
  "directories",
+ "giggs",
  "hex",
  "mycelium-core",
  "mycelium-distancebridge",
@@ -2657,6 +2658,7 @@ dependencies = [
  "mycelium-pheromones",
  "mycelium-qel",
  "mycelium-sporebank",
+ "mycelium-store",
  "serde",
  "serde_json",
  "tokio",
@@ -2733,6 +2735,7 @@ dependencies = [
 name = "mycelium-node"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "entropy",
  "futures",
  "giggs",
@@ -2741,10 +2744,12 @@ dependencies = [
  "isotope",
  "libp2p",
  "mycelium-core",
+ "mycelium-ghostid",
  "mycelium-hyphae",
  "mycelium-nutrients",
  "mycelium-pheromones",
  "mycelium-sporebank",
+ "mycelium-store",
  "mycelium-tropical",
  "plasma",
  "serde",
@@ -2806,6 +2811,7 @@ dependencies = [
 name = "mycelium-nutrients"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "mycelium-core",
  "serde",
  "serde_json",
@@ -2859,6 +2865,26 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "mycelium-store"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "blake3",
+ "giggs",
+ "hex",
+ "mycelium-core",
+ "mycelium-ghostid",
+ "mycelium-pheromones",
+ "mycelium-sporebank",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "vacuum",
 ]
 
 [[package]]

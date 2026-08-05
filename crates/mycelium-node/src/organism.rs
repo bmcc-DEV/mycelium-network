@@ -42,8 +42,16 @@ pub enum OrganismError {
     Field(#[from] thefield::FieldError),
     #[error(transparent)]
     Vacuum(#[from] vacuum::VacuumError),
+    #[error(transparent)]
+    Nutrient(#[from] mycelium_nutrients::NutrientError),
     #[error("{0}")]
     Msg(String),
+}
+
+impl From<String> for OrganismError {
+    fn from(s: String) -> Self {
+        OrganismError::Msg(s)
+    }
 }
 
 pub struct OrganismConfig {
@@ -117,6 +125,14 @@ pub struct Organism {
     remote_ledger: HashMap<NodeId, (HashMap<Nutrient, u64>, u64)>,
     known_zones: HashMap<String, Vec<NodeId>>,
     ion_hosts: HashMap<String, String>,
+    catalog: std::sync::Arc<std::sync::Mutex<mycelium_store::StoreCatalog>>,
+    home: PathBuf,
+    /// Identidade de assinatura (GhostID/NIP-01) para a Micelial Value Layer.
+    ghost: mycelium_ghostid::GhostId,
+    /// Registro de ativos RWA / empresas (Fase 3/4).
+    assets: crate::assets::AssetRegistry,
+    /// Nonce de transferência emitida (anti-replay).
+    transfer_nonce: u64,
 }
 
 impl Organism {
@@ -274,6 +290,11 @@ impl Organism {
             store.save_nucleus(&nucleus)?;
         }
         let vault = store.load_vault();
+        let catalog = mycelium_store::StoreCatalog::open(&config.home)
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        let assets = crate::assets::AssetRegistry::open(&config.home)
+            .map_err(|e| OrganismError::Msg(e.to_string()))?;
+        let ghost = ghost_for_node(gland.seed());
         let mut org = Self {
             store,
             gland,
@@ -310,6 +331,11 @@ impl Organism {
             remote_ledger: HashMap::new(),
             known_zones: HashMap::new(),
             ion_hosts: HashMap::new(),
+            catalog: std::sync::Arc::new(std::sync::Mutex::new(catalog)),
+            home: config.home.clone(),
+            ghost,
+            assets,
+            transfer_nonce: 0,
         };
 
         for rec in records {
@@ -455,6 +481,131 @@ impl Organism {
             .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
         self.persist()?;
         Ok(id)
+    }
+
+    /// Publica uma árvore de código (repo) como Plot multi-leaf content-addressed,
+    /// anunciada na DHT e difundida por gossip — distribuição soberana, sem GitHub.
+    pub fn publish_repo(
+        &mut self,
+        message: String,
+        leaves: Vec<giggs::Leaf>,
+    ) -> Result<ContentId, OrganismError> {
+        let plot = Plot {
+            author: self.gland.node_id(),
+            message,
+            parents: vec![],
+            leaves,
+        };
+        let id = self.bank.deposit(plot.clone())?;
+        let bytes = self.bank.spore_print(&id)?;
+        let _ = self.hyphae.dht_store_local(dht_key(&id), bytes.clone());
+        let _ = self.hyphae.dht_put(dht_key(&id), bytes);
+        let env = Envelope::SporePrint { plot };
+        let _ = self
+            .hyphae
+            .broadcast_lattice(env.encode().map_err(|e| OrganismError::Msg(e.to_string()))?);
+        self.persist()?;
+        Ok(id)
+    }
+
+    // ── Micelial Value Layer ────────────────────────────────
+    /// GhostID pubkey x-only do nó (carteira).
+    pub fn wallet_pubkey(&self) -> [u8; 32] {
+        self.ghost.nostr_pubkey()
+    }
+
+    pub fn wallet_pubkey_hex(&self) -> String {
+        self.ghost.nostr_pubkey_hex()
+}
+
+/// Cria, assina, aplica e propaga uma transferência de nutrientes.
+
+    pub fn transfer(
+        &mut self,
+        to_hex: &str,
+        amount: u64,
+        nutrient: mycelium_core::Nutrient,
+        kind: mycelium_nutrients::TxKind,
+        memo: String,
+        asset: Option<String>,
+    ) -> Result<mycelium_nutrients::SignedTransfer, String> {
+        let to = hex::decode(to_hex)
+            .map_err(|e| format!("pubkey destino inválida: {e}"))?
+            .try_into()
+            .map_err(|_| "pubkey destino precisa de 32 bytes".to_string())?;
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let payload = mycelium_nutrients::TransferPayload {
+            kind,
+            from: self.wallet_pubkey(),
+            to,
+            nutrient,
+            amount,
+            memo,
+            asset,
+            nonce: self.transfer_nonce,
+            ts,
+        };
+        let bytes = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
+        let sig = self.ghost.sign(&bytes);
+        self.transfer_nonce += 1;
+
+        let tx = mycelium_nutrients::SignedTransfer {
+            payload,
+            sig: hex::encode(sig),
+        };
+
+        // Verifica a própria assinatura e aplica no ledger local.
+        self.apply_incoming_transfer(tx.clone(), true).map_err(|e| e.to_string())?;
+
+        // Propaga pela malha.
+        let env = Envelope::ValueTransfer { tx: tx.clone() };
+        let _ = self
+            .hyphae
+            .broadcast_lattice(env.encode().map_err(|e| e.to_string())?);
+        self.persist().map_err(|e| e.to_string())?;
+        Ok(tx)
+    }
+
+    /// Verifica assinatura Schnorr (GhostID) e aplica no ledger local.
+    /// `propagated=true` não re-propaga (para a origem).
+    pub fn apply_incoming_transfer(
+        &mut self,
+        tx: mycelium_nutrients::SignedTransfer,
+        propagated: bool,
+    ) -> Result<(), String> {
+        let p = &tx.payload;
+        let sig = hex::decode(&tx.sig)
+            .map_err(|e| format!("assinatura inválida: {e}"))?;
+        let sig: [u8; 64] = sig
+            .try_into()
+            .map_err(|_| "assinatura precisa de 64 bytes".to_string())?;
+        let hash = mycelium_core::ContentId::of(&tx.canonical_bytes()).0;
+        mycelium_ghostid::GhostId::verify_nostr_event(&p.from, &hash, &sig)
+            .map_err(|_| "assinatura Schnorr inválida".to_string())?;
+
+        let my = self.wallet_pubkey();
+        self.ledger.apply_transfer(&tx, &my).map_err(|e| e.to_string())?;
+
+        if !propagated {
+            let env = Envelope::ValueTransfer { tx };
+            let _ = self.hyphae.broadcast_lattice(
+                env.encode().map_err(|e| e.to_string())?,
+            );
+        }
+        Ok(())
+    }
+
+    /// Recompensa por proof-of-relay / compute (Fase 2), chamada periodicamente.
+    pub fn reward_hardware(&mut self, neighbors: usize) {
+        if neighbors > 0 {
+            self.ledger.relay_reward((neighbors as u64) * 5);
+        }
+        self.ledger.heartbeat(1);
     }
 
     pub fn emit_signal(
@@ -1174,6 +1325,11 @@ impl Organism {
             Envelope::ZoneAnnounce { prefix, custodian } => {
                 self.known_zones.entry(prefix).or_default().push(custodian);
             }
+            Envelope::ValueTransfer { tx } => {
+                if let Err(e) = self.apply_incoming_transfer(tx, false) {
+                    tracing::debug!("value-transfer rejeitada: {e}");
+                }
+            }
         }
         self.persist()?;
         Ok(())
@@ -1462,6 +1618,274 @@ impl Organism {
                 }
                 Response::Ok { message: msg.trim().to_string() }
             }
+            Request::StoreList => {
+                let catalog = self.catalog.lock().unwrap();
+                let spores: Vec<_> = catalog.list_public_spores().into_iter().cloned().collect();
+                Response::StoreList { spores }
+            }
+            Request::StoreCaps => {
+                let caps = mycelium_store::EmulatorRunner::detect_capabilities();
+                Response::StoreCaps { caps }
+            }
+            Request::StoreLaunch { id, engine, sandbox } => {
+                let catalog = self.catalog.lock().unwrap();
+                let spore = match catalog.get_spore(&id) {
+                    Some(s) => s,
+                    None => return Response::Err {
+                        message: format!("spore '{}' não encontrado no catálogo", id),
+                    },
+                };
+                let spore = spore.clone();
+                let caps = mycelium_store::EmulatorRunner::detect_capabilities();
+                let forced = engine.as_deref().map(|e| {
+                    use mycelium_store::ExecutionEngineType;
+                    match e {
+                        "native" => ExecutionEngineType::Native,
+                        "retroarch" => ExecutionEngineType::RetroArchLibretro,
+                        "mame" => ExecutionEngineType::MAME,
+                        "qemu" => ExecutionEngineType::QEMU,
+                        "wasm" => ExecutionEngineType::WebAssembly,
+                        "cloud" => ExecutionEngineType::P2PCloudStream,
+                        _ => ExecutionEngineType::Native,
+                    }
+                });
+                let resolved = mycelium_store::EmulatorRunner::resolve_best_engine(&spore, &caps, forced);
+                let game_path = self.store.root.join("store").join(&spore.main_binary_file);
+                match mycelium_store::EmulatorRunner::launch(&spore, &game_path, resolved.clone(), sandbox) {
+                    Ok(_child) => Response::StoreLaunched {
+                        spore_id: spore.id,
+                        engine: format!("{:?}", resolved),
+                        message: format!("{} lançado via {:?}", spore.title, resolved),
+                    },
+                    Err(e) => Response::Err {
+                        message: format!("falha ao lançar: {}", e),
+                    },
+                }
+            }
+            Request::StorePublish { id, title, platform } => {
+                let mut catalog = self.catalog.lock().unwrap();
+                let plat = platform.to_lowercase();
+                let platform = match plat.as_str() {
+                    "snes" => mycelium_store::TargetPlatform::SNES,
+                    "nes" => mycelium_store::TargetPlatform::NES,
+                    "megadrive" | "genesis" => mycelium_store::TargetPlatform::MegaDrive,
+                    "msdos" | "dos" => mycelium_store::TargetPlatform::MSDOS,
+                    "win98" | "win95" => mycelium_store::TargetPlatform::Windows98,
+                    "arcade" | "mame" => mycelium_store::TargetPlatform::ArcadeMame,
+                    "mac" | "ppc" => mycelium_store::TargetPlatform::PowerPCMac,
+                    _ => mycelium_store::TargetPlatform::NativeSystem,
+                };
+                let spore = mycelium_store::SoftwareSpore {
+                    id: id.clone(),
+                    title,
+                    description: "Publicado via daemon Mycelium Store".into(),
+                    developer_or_publisher: "Comunidade Mycelium".into(),
+                    release_year: 2000,
+                    platform,
+                    category: "software".into(),
+                    tags: vec!["p2p".into(), "spore".into()],
+                    license: mycelium_store::SporeLicense::Proprietary,
+                    main_binary_file: format!("{}.bin", id),
+                    content_id: mycelium_core::ContentId::of(id.as_bytes()),
+                    execution_matrix: mycelium_store::ExecutionMatrix {
+                        recommended: mycelium_store::ExecutionEngineType::Native,
+                        supports_native: true,
+                        libretro_core: None,
+                        mame_driver: None,
+                        qemu_config: None,
+                        supports_wasm: true,
+                        supports_p2p_stream: true,
+                    },
+                    requirements: mycelium_store::spore::HardwareRequirements::default(),
+                    extra_args: vec![],
+                    cover_image_url: None,
+                };
+                catalog.insert_spore(spore).map(|_| {
+                    Response::Ok {
+                        message: format!("spore '{}' registrado no catálogo", id),
+                    }
+                }).unwrap_or_else(|e| Response::Err {
+                    message: format!("erro ao salvar catálogo: {}", e),
+                })
+            }
+            Request::RepoPublish { message, leaves } => {
+                let n = leaves.len();
+                let bytes: usize = leaves.iter().map(|l| l.content.len()).sum();
+                match self.publish_repo(message, leaves) {
+                    Ok(id) => Response::RepoPublished {
+                        cid: id.to_string(),
+                        leaves: n,
+                        bytes,
+                    },
+                    Err(e) => Response::Err {
+                        message: e.to_string(),
+                    },
+                }
+            }
+            Request::RepoClone { cid } => match cid.parse::<ContentId>() {
+                Ok(id) => match self.bank.recall(&id) {
+                    Some(p) => Response::RepoCloneResult {
+                        message: format!(
+                            "repo {} — \"{}\" ({} leaves)",
+                            id.short(),
+                            p.message,
+                            p.leaves.len()
+                        ),
+                        leaves: p.leaves.clone(),
+                    },
+                    None => {
+                        self.hyphae.dht_get(dht_key(&id));
+                        Response::Err {
+                            message: format!(
+                                "repo {} ausente localmente; consulta DHT disparada — tente de novo em alguns segundos",
+                                id.short()
+                            ),
+                        }
+                    }
+                },
+                Err(e) => Response::Err { message: e },
+            },
+            Request::Transfer {
+                to,
+                amount,
+                nutrient,
+                kind,
+                memo,
+                asset,
+            } => {
+                let nut = nutrient
+                    .parse::<mycelium_core::Nutrient>()
+                    .map_err(|_| format!("nutriente inválido: {}", nutrient));
+                let kind = kind
+                    .parse::<mycelium_nutrients::TxKind>()
+                    .map_err(|_| format!("kind inválido: {}", kind));
+                match (nut, kind) {
+                    (Ok(n), Ok(k)) => match self.transfer(&to, amount, n, k, memo, asset) {
+                        Ok(tx) => Response::TransferResult {
+                            tx_id: tx.short(),
+                            kind: k.as_str().to_string(),
+                            nutrient: n.to_string(),
+                            amount,
+                            to,
+                        },
+                        Err(e) => Response::Err { message: e },
+                    },
+                    (Err(e), _) | (_, Err(e)) => Response::Err { message: e },
+                }
+            }
+            Request::LedgerInfo => Response::LedgerReport {
+                pubkey: self.wallet_pubkey_hex(),
+                balances: self.ledger.balances.clone(),
+                history: self.ledger.history.clone(),
+                transfers: self.ledger.recent_transfers().to_vec(),
+            },
+            Request::AssetRegister {
+                id,
+                name,
+                kind,
+                description,
+                location,
+                shares_total,
+                price_per_share,
+            } => {
+                let kind = kind
+                    .parse::<crate::assets::AssetKind>()
+                    .map_err(|_| format!("kind inválido: {}", kind));
+                match kind {
+                    Ok(k) => {
+                        let record = crate::assets::AssetRecord {
+                            id: id.clone(),
+                            name,
+                            kind: k,
+                            description,
+                            location,
+                            shares_total,
+                            price_per_share,
+                            owner: self.wallet_pubkey(),
+                        };
+                        match self.assets.register(record) {
+                            Ok(()) => {
+                                self.assets.save(&self.home).ok();
+                                Response::Ok {
+                                    message: format!("ativo '{}' registado", id),
+                                }
+                            }
+                            Err(e) => Response::Err { message: e },
+                        }
+                    }
+                    Err(e) => Response::Err { message: e },
+                }
+            }
+            Request::AssetList => Response::AssetListResult {
+                assets: self.assets.assets.clone(),
+            },
+            Request::AssetShares { id } => Response::AssetSharesResult {
+                asset: id.clone(),
+                holdings: self.assets.holdings_of(&id),
+            },
+            Request::AssetTransfer { asset, shares, to } => {
+                let to = hex::decode(&to)
+                    .map_err(|e| format!("pubkey destino inválida: {e}"))
+                    .and_then(|v| v.try_into().map_err(|_| "pubkey precisa 32 bytes".to_string()));
+                match to {
+                    Ok(to_pubkey) => match self.assets.transfer_shares(&asset, &self.wallet_pubkey(), &to_pubkey, shares) {
+                        Ok(()) => {
+                            self.assets.save(&self.home).ok();
+                            Response::Ok {
+                                message: format!("{} cotas transferidas", shares),
+                            }
+                        }
+                        Err(e) => Response::Err { message: e },
+                    },
+                    Err(e) => Response::Err { message: e },
+                }
+            }
+            Request::CompanyRegister { name, shares_total } => {
+                let name_for_record = name.clone();
+                let record = crate::assets::AssetRecord {
+                    id: name.clone(),
+                    name: name_for_record,
+                    kind: crate::assets::AssetKind::Company,
+                    description: "Empresa/cooperativa (Fase 4)".into(),
+                    location: None,
+                    shares_total,
+                    price_per_share: 1,
+                    owner: self.wallet_pubkey(),
+                };
+                match self.assets.register(record) {
+                    Ok(()) => {
+                        self.assets.save(&self.home).ok();
+                        Response::Ok {
+                            message: format!("empresa '{}' registada", name),
+                        }
+                    }
+                    Err(e) => Response::Err { message: e },
+                }
+            }
+            Request::CompanyPayout { name, total } => {
+                let holdings = self.assets.holdings_of(&name);
+                let total_shares: u64 = holdings.iter().map(|h| h.shares).sum();
+                if total_shares == 0 {
+                    return Response::Err {
+                        message: "nenhuma cota emitida".into(),
+                    };
+                }
+                let per_share = total / total_shares;
+                let mut paid = 0;
+                for h in holdings {
+                    let share = h.shares * per_share;
+                    self.ledger.feed_kind(
+                        mycelium_core::Nutrient::Atp,
+                        share,
+                        format!("dividendo empresa {}", name),
+                        Some(mycelium_nutrients::TxKind::Revenue),
+                    );
+                    paid += share;
+                }
+                Response::Ok {
+                    message: format!("distribuído {} ATP como dividendo", paid),
+                }
+            }
             Request::Shutdown => Response::Ok {
                 message: "encerrando".into(),
             },
@@ -1498,6 +1922,117 @@ impl Organism {
             self.state.horizon_port
         );
         self.horizon_handle = Some(handle);
+
+        // Expõe a Mycelium Store UI + API como um ion no Event Horizon.
+        let store_catalog = self.catalog.clone();
+        let store_home = self.home.clone();
+        let store_horizon = self.horizon.clone();
+        tokio::spawn(async move {
+            let store_router = mycelium_store::create_store_router(&store_home, store_catalog);
+            let ui_router = mycelium_store::create_store_ui_router(&store_home);
+            let app = store_router.merge(ui_router);
+            let store_bind: std::net::SocketAddr = "127.0.0.1:0"
+                .parse()
+                .expect("bind valid");
+            let listener = match tokio::net::TcpListener::bind(store_bind).await {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!(error = %e, "falha ao escutar store server");
+                    return;
+                }
+            };
+            let local = listener.local_addr().expect("local addr");
+            tracing::info!(
+                url = %format!("http://127.0.0.1:{}/store/", local),
+                "mycelium store server escutando"
+            );
+            {
+                let mut table = store_horizon.write().unwrap();
+                table.expose(
+                    "store.mycelium",
+                    Orbit {
+                        ion: "store".into(),
+                        node: NodeId::derive(b"store"),
+                        mass: 100,
+                        resistance: 0,
+                        upstream: format!("http://{}", local),
+                    },
+                );
+            }
+            let _ = axum::serve(listener, app).await;
+        });
+
+        // Expõe o browser de código soberano (ion `src`) no Event Horizon.
+        let src_home = self.home.clone();
+        let src_horizon = self.horizon.clone();
+        tokio::spawn(async move {
+            let app = crate::src_ion::create_src_router(&src_home);
+            let src_bind: std::net::SocketAddr = "127.0.0.1:0"
+                .parse()
+                .expect("bind valid");
+            let listener = match tokio::net::TcpListener::bind(src_bind).await {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!(error = %e, "falha ao escutar src server");
+                    return;
+                }
+            };
+            let local = listener.local_addr().expect("local addr");
+            tracing::info!(
+                url = %format!("http://127.0.0.1:{}/src/", local),
+                "mycelium src ion escutando"
+            );
+            {
+                let mut table = src_horizon.write().unwrap();
+                table.expose(
+                    "src.mycelium",
+                    Orbit {
+                        ion: "src".into(),
+                        node: NodeId::derive(b"src"),
+                        mass: 100,
+                        resistance: 0,
+                        upstream: format!("http://{}", local),
+                    },
+                );
+            }
+            let _ = axum::serve(listener, app).await;
+        });
+
+        // Expõe o catálogo de seeds públicas/privadas (ion `seeds`) no Event Horizon.
+        let seeds_home = self.home.clone();
+        let seeds_horizon = self.horizon.clone();
+        tokio::spawn(async move {
+            let app = crate::seeds_ion::create_seeds_router(&seeds_home);
+            let seeds_bind: std::net::SocketAddr = "127.0.0.1:0"
+                .parse()
+                .expect("bind valid");
+            let listener = match tokio::net::TcpListener::bind(seeds_bind).await {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!(error = %e, "falha ao escutar seeds server");
+                    return;
+                }
+            };
+            let local = listener.local_addr().expect("local addr");
+            tracing::info!(
+                url = %format!("http://127.0.0.1:{}/seeds/", local),
+                "mycelium seeds ion escutando"
+            );
+            {
+                let mut table = seeds_horizon.write().unwrap();
+                table.expose(
+                    "seeds.mycelium",
+                    Orbit {
+                        ion: "seeds".into(),
+                        node: NodeId::derive(b"seeds"),
+                        mass: 100,
+                        resistance: 0,
+                        upstream: format!("http://{}", local),
+                    },
+                );
+            }
+            let _ = axum::serve(listener, app).await;
+        });
 
         let pheromone = self
             .gland
@@ -1893,4 +2428,19 @@ impl Organism {
         tracing::info!("organismo hibernou — estado persistido");
         Ok(())
     }
+}
+
+/// GhostID determinístico da carteira do nó: derivado do seed do gland
+/// (estável por nó, efémero pela camada de assinatura NIP-01).
+fn ghost_for_node(gland_seed: [u8; 32]) -> mycelium_ghostid::GhostId {
+    let seed = mycelium_core::ContentId::of(b"mycelium-value-layer-v1")
+        .0
+        .iter()
+        .zip(gland_seed.iter())
+        .map(|(a, b)| a ^ b)
+        .collect::<Vec<u8>>()
+        .try_into()
+        .unwrap_or(gland_seed);
+    mycelium_ghostid::GhostId::from_secret_bytes(seed, 60 * 60 * 24 * 365 * 100)
+        .unwrap_or_else(|_| mycelium_ghostid::GhostId::spawn_quick(60 * 60 * 24 * 365).unwrap())
 }

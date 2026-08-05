@@ -230,6 +230,74 @@ enum Commands {
         #[arg(long)]
         root: PathBuf,
     },
+    /// App Store / Steam P2P de jogos e software antigo/legado
+    Store {
+        #[command(subcommand)]
+        action: StoreCmd,
+    },
+    /// Distribuição de código soberana via P2P (sem GitHub)
+    Repo {
+        #[command(subcommand)]
+        action: RepoCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum StoreCmd {
+    /// Lista jogos e softwares legados cadastrados no catálogo P2P
+    List,
+    /// Mostra as capacidades de emulação do sistema host (QEMU, MAME, RetroArch, bwrap)
+    Caps,
+    /// Executa um jogo ou software legado por ID
+    Launch {
+        #[arg(long)]
+        id: String,
+        /// Força o motor de execução (native, retroarch, mame, qemu, wasm, cloud)
+        #[arg(long)]
+        engine: Option<String>,
+        /// Sandboxing estrito com bubblewrap
+        #[arg(long, default_value_t = false)]
+        sandbox: bool,
+    },
+    /// Publica uma nova ROM / software legado no SporeBank
+    Publish {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        platform: String,
+        #[arg(long)]
+        binary: PathBuf,
+        /// Licença de distribuição (shareware, freeware, open_source, public_domain, proprietary).
+        /// Default: proprietary (só local / BYOR — não distribuído na rede)
+        #[arg(long, default_value = "proprietary")]
+        license: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RepoCmd {
+    /// Publica uma árvore de código como Plot multi-leaf no SporeBank (DHT + gossip)
+    Publish {
+        /// Diretório raiz do repositório a publicar.
+        #[arg(short, long)]
+        dir: PathBuf,
+        /// Mensagem/descrição do commit (ex.: "v0.1.0 — store P2P").
+        #[arg(short, long, default_value = "mycelium-launcher-store")]
+        message: String,
+    },
+    /// Reconstrói uma árvore de código a partir de um ContentId
+    Clone {
+        /// ContentId (Qm…) do repo publicado.
+        #[arg(long)]
+        cid: String,
+        /// Diretório de destino da árvore reconstruída.
+        #[arg(short, long)]
+        dest: PathBuf,
+    },
+    /// Lista os repos disponíveis no SporeBank local
+    List,
 }
 
 #[derive(Subcommand)]
@@ -285,6 +353,55 @@ enum SeedsCmd {
         /// Nome DNS TXT do Spore Bank. Sem valor → default `_mycelium.seeds.duckdns.org`.
         #[arg(long, num_args = 0..=1, default_missing_value = DEFAULT_DNS_SEED_NAME)]
         dns: Option<String>,
+    },
+    /// Catálogo estruturado de seeds públicas e privadas (`{home}/seeds/catalog.json`).
+    Catalog {
+        #[command(subcommand)]
+        action: SeedCatalogCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum SeedCatalogCmd {
+    /// Lista seeds do catálogo.
+    List {
+        /// Filtro de visibilidade: public | private | all.
+        #[arg(long, default_value = "all")]
+        visibility: String,
+    },
+    /// Adiciona um seed ao catálogo.
+    Add {
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        multiaddr: String,
+        /// public | private
+        #[arg(long, default_value = "public")]
+        visibility: String,
+        #[arg(long)]
+        membrane: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+        #[arg(long)]
+        operator: Option<String>,
+        /// Opera como circuit relay v2.
+        #[arg(long, default_value_t = false)]
+        relay: bool,
+        /// Inbound verificado.
+        #[arg(long, default_value_t = false)]
+        verified: bool,
+    },
+    /// Remove um seed do catálogo por id.
+    Remove {
+        #[arg(long)]
+        id: String,
+    },
+    /// Exporta as seeds públicas no formato `seeds/mainnet.txt`.
+    Export {
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
 }
 
@@ -444,6 +561,8 @@ fn main() {
         Commands::ChamberServe { port, ion, root } => {
             rt.block_on(chamber_serve(port, ion, root))
         }
+        Commands::Store { action } => store_cmd(&home, action),
+        Commands::Repo { action } => rt.block_on(repo_cmd(&home, action)),
     };
 
     if let Err(e) = result {
@@ -520,6 +639,103 @@ fn seeds_cmd(home: &PathBuf, action: SeedsCmd) -> Result<(), String> {
             for s in book.as_strings() {
                 println!("  {s}");
             }
+            Ok(())
+        }
+        SeedsCmd::Catalog { action } => seed_catalog_cmd(home, action),
+    }
+}
+
+fn seed_catalog_cmd(home: &PathBuf, action: SeedCatalogCmd) -> Result<(), String> {
+    use mycelium_hyphae::{SeedCatalog, SeedEntry, SeedVisibility};
+    match action {
+        SeedCatalogCmd::List { visibility } => {
+            let catalog = SeedCatalog::open(home)?;
+            let filter = match visibility.as_str() {
+                "all" => None,
+                "public" => Some(SeedVisibility::Public),
+                "private" => Some(SeedVisibility::Private),
+                other => {
+                    return Err(format!(
+                        "visibilidade desconhecida: '{other}' (use public|private|all)"
+                    ))
+                }
+            };
+            let entries = catalog.list(filter);
+            println!("\n[🍄] Catálogo de seeds ({}) — {}", entries.len(), SeedCatalog::catalog_path(home).display());
+            for s in entries {
+                let verified = if s.verified { "✓" } else { "✗" };
+                println!("  • [{}] {} ({})", s.visibility.as_str(), s.id, s.name);
+                println!("      multiaddr : {}", s.multiaddr);
+                println!(
+                    "      meta      : membrana={} região={} operador={} relay={} inbound={}",
+                    s.membrane.as_deref().unwrap_or("-"),
+                    s.region.as_deref().unwrap_or("-"),
+                    s.operator.as_deref().unwrap_or("-"),
+                    s.relay,
+                    verified
+                );
+            }
+            Ok(())
+        }
+        SeedCatalogCmd::Add {
+            id,
+            name,
+            multiaddr,
+            visibility,
+            membrane,
+            region,
+            operator,
+            relay,
+            verified,
+        } => {
+            let visibility = match visibility.as_str() {
+                "public" => SeedVisibility::Public,
+                "private" => SeedVisibility::Private,
+                other => return Err(format!("visibilidade inválida: '{other}' (use public|private)")),
+            };
+            let mut catalog = SeedCatalog::open(home)?;
+            catalog.add(SeedEntry {
+                id: id.unwrap_or_default(),
+                name,
+                multiaddr,
+                visibility,
+                membrane,
+                region,
+                operator,
+                relay,
+                verified,
+                last_seen: None,
+                notes: None,
+            })?;
+            catalog.save(home)?;
+            println!("[🍄] Seed adicionada ao catálogo.");
+            Ok(())
+        }
+        SeedCatalogCmd::Remove { id } => {
+            let mut catalog = SeedCatalog::open(home)?;
+            if catalog.remove(&id) {
+                catalog.save(home)?;
+                println!("[🍄] Seed '{id}' removida.");
+            } else {
+                println!("[🍄] Seed '{id}' não encontrada.");
+            }
+            Ok(())
+        }
+        SeedCatalogCmd::Export { out } => {
+            let catalog = SeedCatalog::open(home)?;
+            let lines = catalog.to_mainnet_lines();
+            let n_seeds = lines.iter().filter(|l| !l.starts_with('#')).count();
+            let dest = out.unwrap_or_else(|| home.join("seeds").join("mainnet.txt"));
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let mut body = String::from("# Mycelium Network — seeds públicas verificadas (do catálogo)\n# Só entradas com inbound verificado entram aqui.\n");
+            for l in &lines {
+                body.push_str(l);
+                body.push('\n');
+            }
+            std::fs::write(&dest, body).map_err(|e| format!("gravar {}: {e}", dest.display()))?;
+            println!("[🍄] Exportadas {} seeds públicas verificadas → {}", n_seeds, dest.display());
             Ok(())
         }
     }
@@ -814,6 +1030,7 @@ async fn entropy_cmd(home: &PathBuf, action: EntropyCmd) -> Result<(), String> {
                         }
                     }
                     Response::Status(_) => return Err("resposta inesperada".into()),
+                    _ => return Err("resposta inesperada".into()),
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
@@ -1203,6 +1420,7 @@ async fn isotope_get_poll(home: &PathBuf, key: String) -> Result<(), String> {
                 }
             }
             Response::Status(_) => return Err("resposta inesperada".into()),
+            _ => return Err("resposta inesperada".into()),
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
@@ -1247,6 +1465,7 @@ async fn deploy(home: &PathBuf, opts: DeployOpts) -> Result<(), String> {
                 .to_string(),
             Response::Err { message } => return Err(message),
             Response::Status(_) => return Err("resposta inesperada no sow".into()),
+            _ => return Err("resposta inesperada no sow".into()),
         }
     };
     println!("[🍄] Plot {plot_id}");
@@ -1265,6 +1484,7 @@ async fn deploy(home: &PathBuf, opts: DeployOpts) -> Result<(), String> {
         Response::Ok { message } => println!("[🍄] {message}"),
         Response::Err { message } => return Err(message),
         Response::Status(_) => return Err("resposta inesperada no signal".into()),
+        _ => return Err("resposta inesperada no signal".into()),
     }
 
     let deadline =
@@ -1364,6 +1584,7 @@ fn print_response(resp: Response) -> Result<(), String> {
             Ok(())
         }
         Response::Err { message } => Err(message),
+        _ => Err("resposta não suportada".into()),
     }
 }
 
@@ -1432,4 +1653,301 @@ async fn chamber_serve(port: u16, ion: String, root: PathBuf) -> Result<(), Stri
     axum::serve(listener, app)
         .await
         .map_err(|e| e.to_string())
+}
+
+fn store_cmd(home: &PathBuf, action: StoreCmd) -> Result<(), String> {
+    let rt = tokio::runtime::Runtime::new().expect("tokio");
+    rt.block_on(store_cmd_async(home, action))
+}
+
+async fn store_cmd_async(home: &PathBuf, action: StoreCmd) -> Result<(), String> {
+    use mycelium_store::{
+        catalog::StoreCatalog,
+        runner::EmulatorRunner,
+        spore::{ExecutionEngineType, SoftwareSpore, SporeLicense, TargetPlatform},
+    };
+
+    let sock = home.join("mycelium.sock");
+    let daemon_running = sock.exists() || sock.with_extension("tcp").exists();
+
+    match action {
+        StoreCmd::List => {
+            if daemon_running {
+                return print_response(call(&sock, Request::StoreList).await?);
+            }
+            let catalog = StoreCatalog::open(home).map_err(|e| e.to_string())?;
+            let spores = catalog.list_public_spores();
+            println!("\n🎮 === MYCELIUM APP STORE — Catálogo P2P Retro === 🎮\n");
+            for spore in spores {
+                println!("🔹 ID: {}", spore.id);
+                println!("   Título: {}", spore.title);
+                println!("   Plataforma: {}", spore.platform.display_name());
+                println!("   Ano: {}", spore.release_year);
+                println!("   Licença: {}", spore.license.display_name());
+                println!("   Recomendado: {:?}", spore.execution_matrix.recommended);
+                println!("   Categorias/Tags: {:?}", spore.tags);
+                println!("   ContentId: {}", hex::encode(spore.content_id.0));
+                println!("------------------------------------------------------------");
+            }
+            Ok(())
+        }
+        StoreCmd::Caps => {
+            if daemon_running {
+                return print_response(call(&sock, Request::StoreCaps).await?);
+            }
+            let caps = EmulatorRunner::detect_capabilities();
+            println!("\n⚡ === MYCELIUM STORE — Capacidades de Emulação Host === ⚡\n");
+            println!(" ⚙️ QEMU Emulators:");
+            for (arch, has) in caps.has_qemu {
+                println!("    • qemu-system-{:<8}: {}", arch, if has { "✅ Instalado" } else { "❌ Ausente" });
+            }
+            println!(" ⚙️ RetroArch (Libretro): {}", if caps.has_retroarch { "✅ Instalado" } else { "❌ Ausente" });
+            println!("    Cores encontrados: {:?}", caps.available_libretro_cores);
+            println!(" ⚙️ MAME Arcade: {}", if caps.has_mame { "✅ Instalado" } else { "❌ Ausente" });
+            println!(" ⚙️ Bubblewrap Sandbox (bwrap): {}\n", if caps.has_bwrap_sandbox { "✅ Disponível" } else { "❌ Não encontrado" });
+            Ok(())
+        }
+        StoreCmd::Launch { id, engine, sandbox } => {
+            if daemon_running {
+                let req = Request::StoreLaunch { id, engine, sandbox };
+                return print_response(call(&sock, req).await?);
+            }
+            let catalog = StoreCatalog::open(home).map_err(|e| e.to_string())?;
+            let spore = catalog.get_spore(&id).ok_or_else(|| format!("Spore '{}' não encontrado", id))?;
+
+            let caps = EmulatorRunner::detect_capabilities();
+
+            let forced_engine = match engine.as_deref() {
+                Some("native") => Some(ExecutionEngineType::Native),
+                Some("retroarch") => Some(ExecutionEngineType::RetroArchLibretro),
+                Some("mame") => Some(ExecutionEngineType::MAME),
+                Some("qemu") => Some(ExecutionEngineType::QEMU),
+                Some("wasm") => Some(ExecutionEngineType::WebAssembly),
+                Some("cloud") => Some(ExecutionEngineType::P2PCloudStream),
+                Some(other) => return Err(format!("Motor de execução desconhecido: '{}'", other)),
+                None => None,
+            };
+
+            let resolved_engine = EmulatorRunner::resolve_best_engine(spore, &caps, forced_engine);
+            println!("[🍄 Store] Preparando lançamento de '{}'...", spore.title);
+            println!("[🍄 Store] Plataforma Alvo: {}", spore.platform.display_name());
+            println!("[🍄 Store] Motor Escolhido: {:?}", resolved_engine);
+
+            let dummy_path = home.join("store").join(&spore.main_binary_file);
+
+            match EmulatorRunner::launch(spore, &dummy_path, resolved_engine, sandbox) {
+                Ok(_child) => {
+                    println!("[🍄 Store] Processo do emulador lançado com sucesso!");
+                    Ok(())
+                }
+                Err(err) => Err(format!("Erro ao lançar o emulador: {}", err)),
+            }
+        }
+        StoreCmd::Publish { id, title, platform, binary, license } => {
+            if !binary.exists() {
+                return Err(format!("Arquivo binário '{:?}' não existe", binary));
+            }
+            let bytes = std::fs::read(&binary).map_err(|e| e.to_string())?;
+
+            let plat = match platform.to_lowercase().as_str() {
+                "snes" => TargetPlatform::SNES,
+                "nes" => TargetPlatform::NES,
+                "megadrive" | "genesis" => TargetPlatform::MegaDrive,
+                "msdos" | "dos" => TargetPlatform::MSDOS,
+                "win98" | "win95" => TargetPlatform::Windows98,
+                "arcade" | "mame" => TargetPlatform::ArcadeMame,
+                "mac" | "ppc" => TargetPlatform::PowerPCMac,
+                _ => TargetPlatform::NativeSystem,
+            };
+
+            let lic = match license.to_lowercase().as_str() {
+                "shareware" => SporeLicense::Shareware,
+                "freeware" => SporeLicense::Freeware,
+                "open_source" | "opensource" | "open" => SporeLicense::OpenSource,
+                "public_domain" | "publicdomain" | "pd" | "cc0" => SporeLicense::PublicDomain,
+                _ => SporeLicense::Proprietary,
+            };
+
+            let mut catalog = StoreCatalog::open(home).map_err(|e| e.to_string())?;
+
+            let main_file = binary.file_name().unwrap().to_string_lossy().to_string();
+            let content_id = mycelium_core::ContentId::of(&bytes);
+
+            let spore = SoftwareSpore {
+                id: id.clone(),
+                title,
+                description: "Publicado via Mycelium Store CLI".to_string(),
+                developer_or_publisher: "Comunidade Mycelium".to_string(),
+                release_year: 2000,
+                platform: plat,
+                category: "software".to_string(),
+                tags: vec!["p2p".to_string(), "spore".to_string()],
+                license: lic,
+                main_binary_file: main_file,
+                content_id,
+                execution_matrix: mycelium_store::ExecutionMatrix {
+                    recommended: ExecutionEngineType::Native,
+                    supports_native: true,
+                    libretro_core: None,
+                    mame_driver: None,
+                    qemu_config: None,
+                    supports_wasm: true,
+                    supports_p2p_stream: true,
+                },
+                requirements: mycelium_store::spore::HardwareRequirements::default(),
+                extra_args: vec![],
+                cover_image_url: None,
+            };
+
+            let cid = catalog.publish_spore(spore, &bytes).map_err(|e| e.to_string())?;
+            println!("[🍄 Store] Spore '{}' publicado com sucesso! ContentId: {}", id, hex::encode(cid.0));
+            Ok(())
+        }
+    }
+}
+
+async fn repo_cmd(home: &PathBuf, action: RepoCmd) -> Result<(), String> {
+    match action {
+        RepoCmd::Publish { dir, message } => {
+            if !dir.is_dir() {
+                return Err(format!("diretório não encontrado: {:?}", dir));
+            }
+            let leaves = pack_tree(&dir)?;
+            if leaves.is_empty() {
+                return Err("nenhum arquivo para publicar".into());
+            }
+            let bytes: usize = leaves.iter().map(|l| l.content.len()).sum();
+            println!("[🍄 Repo] Empacotando {} arquivos ({} bytes) de {:?}", leaves.len(), bytes, dir);
+            println!("[🍄 Repo] Enviando para o daemon (SporeBank + DHT + gossip)...");
+            let resp = call(&home.join("mycelium.sock"), Request::RepoPublish { message, leaves }).await?;
+            match resp {
+                Response::RepoPublished { cid, leaves, bytes } => {
+                    println!("[🍄 Repo] ✅ Publicado!");
+                    println!("    ContentId : {cid}");
+                    println!("    Arquivos  : {leaves}");
+                    println!("    Tamanho   : {bytes} bytes");
+                    println!();
+                    println!("  Distribua este ContentId (via Nostr/DHT). Qualquer nó pode:");
+                    println!("    mycelium repo clone --cid {cid} --dest ./copia");
+                    println!("    curl http://127.0.0.1:7474/src/{cid}/");
+                    Ok(())
+                }
+                Response::Err { message } => Err(message),
+                other => Err(format!("resposta inesperada: {:?}", other)),
+            }
+        }
+        RepoCmd::Clone { cid, dest } => {
+            let sock = home.join("mycelium.sock");
+            let resp = call(&sock, Request::RepoClone { cid: cid.clone() }).await;
+            match resp {
+                Ok(Response::RepoCloneResult { message, leaves }) => {
+                    println!("[🍄 Repo] {message}");
+                    write_tree(&dest, &leaves)?;
+                    let bytes: usize = leaves.iter().map(|l| l.content.len()).sum();
+                    println!("[🍄 Repo] ✅ Árvore reconstruída em {:?} ({} arquivos, {} bytes)", dest, leaves.len(), bytes);
+                    Ok(())
+                }
+                Ok(Response::Err { message }) => Err(message),
+                Ok(other) => Err(format!("resposta inesperada: {:?}", other)),
+                Err(e) => {
+                    println!("[🍄 Repo] daemon offline ({e}) — tentando SporeBank local...");
+                    match clone_from_local_bank(home, &cid) {
+                        Some(leaves) => {
+                            write_tree(&dest, &leaves)?;
+                            let bytes: usize = leaves.iter().map(|l| l.content.len()).sum();
+                            println!("[🍄 Repo] ✅ Árvore reconstruída do SporeBank local em {:?} ({} arquivos, {} bytes)", dest, leaves.len(), bytes);
+                            Ok(())
+                        }
+                        None => Err(format!(
+                            "repo {} não encontrado localmente. Suba o daemon (mycelium daemon) para buscar via DHT.",
+                            cid
+                        )),
+                    }
+                }
+            }
+        }
+        RepoCmd::List => {
+            let resp = call(&home.join("mycelium.sock"), Request::Status).await?;
+            match resp {
+                Response::Status(s) => {
+                    println!("\n[🍄 Repo] Plots no SporeBank local: {}\n", s.plots);
+                    for id in mycelium_store_list_local(home)? {
+                        println!("    • {}", id);
+                    }
+                    Ok(())
+                }
+                _ => Err("resposta inesperada no status".into()),
+            }
+        }
+    }
+}
+
+fn write_tree(dest: &PathBuf, leaves: &[giggs::Leaf]) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    for leaf in leaves {
+        let target = dest.join(&leaf.path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&target, &leaf.content).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn clone_from_local_bank(home: &PathBuf, cid: &str) -> Option<Vec<giggs::Leaf>> {
+    let hex_str = cid.strip_prefix("Qm").unwrap_or(cid);
+    let plot_file = home.join("sporebank").join("plots").join(format!("{hex_str}.json"));
+    let bytes = std::fs::read(&plot_file).ok()?;
+    let plot: giggs::Plot = serde_json::from_slice(&bytes).ok()?;
+    Some(plot.leaves)
+}
+
+fn pack_tree(dir: &PathBuf) -> Result<Vec<giggs::Leaf>, String> {
+    fn skip(name: &str) -> bool {
+        matches!(
+            name,
+            ".git" | "target" | "node_modules" | "dist" | "build" | ".cache"
+                | "__pycache__" | ".venv" | "coverage" | ".data" | "graphify-out"
+        )
+    }
+    fn walk(dir: &PathBuf, prefix: &str, out: &mut Vec<giggs::Leaf>) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("ler {:?}: {e}", dir))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if skip(&name) {
+                continue;
+            }
+            let rel = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, &rel, out)?;
+            } else {
+                let content = std::fs::read(&path).map_err(|e| format!("ler {:?}: {e}", path))?;
+                out.push(giggs::Leaf { path: rel, content });
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(dir, "", &mut out)?;
+    Ok(out)
+}
+
+fn mycelium_store_list_local(home: &PathBuf) -> Result<Vec<String>, String> {
+    let bank_dir = home.join("sporebank").join("plots");
+    let mut ids: Vec<String> = std::fs::read_dir(&bank_dir)
+        .map_err(|e| format!("abrir sporebank: {e}"))?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.strip_suffix(".json").map(|s| s.to_string())
+        })
+        .collect();
+    ids.sort();
+    Ok(ids)
 }

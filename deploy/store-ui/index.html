@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mycelium Launcher — Emulação Retro P2P</title>
+    <meta name="description" content="Launcher soberano de jogos retro: RetroArch, MAME e QEMU (com terminal web) via Mycelium Network.">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --bg-subtle: #161b22;
+            --bg-inset: #010409;
+            --border: #30363d;
+            --border-muted: #21262d;
+            --fg: #e6edf3;
+            --fg-muted: #8b949e;
+            --fg-subtle: #6e7681;
+            --accent: #2f81f7;
+            --accent-muted: rgba(47, 129, 247, 0.15);
+            --green: #3fb950;
+            --green-bg: rgba(63, 185, 80, 0.15);
+            --red: #f85149;
+            --red-bg: rgba(248, 81, 73, 0.15);
+            --orange: #d29922;
+            --orange-bg: rgba(210, 153, 34, 0.15);
+            --purple: #bc8cff;
+            --radius: 6px;
+            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--font); background: var(--bg); color: var(--fg);
+            font-size: 14px; line-height: 1.5;
+        }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code, .mono { font-family: var(--mono); font-size: 12px; }
+
+        /* ── Header (estilo GitHub) ─────────────────────────── */
+        .header {
+            background: var(--bg-subtle); border-bottom: 1px solid var(--border-muted);
+            padding: 0 24px; height: 60px; display: flex; align-items: center; gap: 20px;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .header .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; color: var(--fg); }
+        .header .logo .mark { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center;
+            background: linear-gradient(135deg, var(--accent), var(--purple)); font-size: 14px; }
+        .nav { display: flex; gap: 4px; margin-left: 12px; }
+        .nav a {
+            color: var(--fg-muted); padding: 7px 12px; border-radius: var(--radius); font-size: 14px;
+        }
+        .nav a:hover { color: var(--fg); background: var(--bg-inset); text-decoration: none; }
+        .nav a.active { color: var(--fg); background: var(--bg-inset); border-bottom: 2px solid var(--accent); border-radius: var(--radius) var(--radius) 0 0; }
+        .header .spacer { flex: 1; }
+
+        /* ── Layout ─────────────────────────────────────────── */
+        .wrap { max-width: 1280px; margin: 0 auto; padding: 24px; }
+
+        /* Cards / boxes */
+        .card { background: var(--bg-subtle); border: 1px solid var(--border-muted); border-radius: var(--radius); }
+        .box-head {
+            padding: 12px 16px; border-bottom: 1px solid var(--border-muted);
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        }
+        .box-head h2 { font-size: 14px; font-weight: 600; }
+        .box-body { padding: 16px; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px;
+            font-weight: 600; border-radius: var(--radius); border: 1px solid var(--border);
+            background: #21262d; color: var(--fg); cursor: pointer; transition: 0.15s;
+            font-family: var(--font);
+        }
+        .btn:hover { background: #30363d; border-color: var(--fg-subtle); }
+        .btn.primary { background: var(--green); border-color: rgba(46, 160, 67, 0.5); color: #fff; }
+        .btn.primary:hover { background: #2ea043; }
+        .btn.danger { color: var(--red); border-color: rgba(248, 81, 73, 0.4); background: var(--red-bg); }
+        .btn.danger:hover { background: rgba(248, 81, 73, 0.25); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Chips */
+        .chip { display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: 600;
+            border-radius: 12px; border: 1px solid var(--border); }
+        .chip.pub { color: var(--green); border-color: rgba(63,185,80,.4); background: var(--green-bg); }
+        .chip.priv { color: var(--orange); border-color: rgba(210,153,34,.4); background: var(--orange-bg); }
+        .chip.platform { color: var(--purple); border-color: rgba(188,140,255,.4); background: rgba(188,140,255,.1); }
+        .chip.engine { color: var(--accent); border-color: rgba(47,129,247,.4); background: var(--accent-muted); }
+        .chip.qemu { color: var(--accent); border-color: rgba(47,129,247,.4); background: var(--accent-muted); }
+        .chip.mame { color: var(--orange); border-color: rgba(210,153,34,.4); background: var(--orange-bg); }
+        .chip.retroarch { color: var(--purple); border-color: rgba(188,140,255,.4); background: rgba(188,140,255,.1); }
+        .chip.license.ok { color: var(--green); border-color: rgba(63,185,80,.4); background: var(--green-bg); }
+        .chip.license.no { color: var(--orange); border-color: rgba(210,153,34,.4); background: var(--orange-bg); }
+
+        /* Stats row */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .stat { background: var(--bg-subtle); border: 1px solid var(--border-muted); border-radius: var(--radius); padding: 12px 16px; }
+        .stat .label { font-size: 12px; color: var(--fg-muted); }
+        .stat .value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+        .ok { color: var(--green); } .no { color: var(--red); } .warn { color: var(--orange); }
+
+        /* Grid de jogos */
+        .games { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+        .game {
+            background: var(--bg-subtle); border: 1px solid var(--border-muted); border-radius: var(--radius);
+            padding: 14px; display: flex; flex-direction: column; gap: 8px; transition: 0.15s;
+        }
+        .game:hover { border-color: var(--fg-subtle); }
+        .game .title { font-weight: 700; font-size: 14px; }
+        .game .desc { color: var(--fg-muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .game .meta { display: flex; gap: 6px; flex-wrap: wrap; }
+        .game .actions { display: flex; gap: 6px; margin-top: auto; }
+        .game .actions .btn { flex: 1; justify-content: center; }
+
+        /* Processos */
+        .proc { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-muted); }
+        .proc:last-child { border-bottom: none; }
+        .proc .state { width: 8px; height: 8px; border-radius: 50%; }
+        .state.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .state.exited { background: var(--fg-subtle); }
+        .state.stopped { background: var(--fg-subtle); }
+        .state.errored { background: var(--red); }
+        .proc .info { flex: 1; min-width: 0; }
+        .proc .info .name { font-weight: 600; font-size: 13px; }
+        .proc .info .sub { color: var(--fg-muted); font-size: 12px; }
+
+        /* Terminal */
+        .terminal {
+            background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius);
+            font-family: var(--mono); font-size: 12px; color: #c9d1d9;
+            height: 320px; overflow-y: auto; padding: 12px; white-space: pre-wrap; word-break: break-all;
+        }
+        .terminal .prompt { color: var(--green); }
+        .term-input { display: flex; gap: 8px; margin-top: 10px; }
+        .term-input input {
+            flex: 1; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius);
+            color: var(--fg); padding: 8px 12px; font-family: var(--mono); font-size: 12px; outline: none;
+        }
+        .term-input input:focus { border-color: var(--accent); }
+
+        /* Tabs views */
+        .view { display: none; }
+        .view.active { display: block; }
+        .empty { color: var(--fg-muted); text-align: center; padding: 30px; font-size: 13px; }
+
+        .toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--fg); color: var(--bg-inset); padding: 10px 20px; border-radius: var(--radius);
+            font-weight: 600; font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 1000;
+        }
+        .toast.show { opacity: 1; }
+        .mono-line { font-family: var(--mono); font-size: 12px; color: var(--fg-muted); word-break: break-all; }
+    </style>
+</head>
+<body>
+
+    <header class="header">
+        <a href="/store/" class="logo" style="text-decoration:none; color:var(--fg);">
+            <span class="mark">🍄</span> Mycelium
+        </a>
+        <nav class="nav">
+            <a href="/store/" class="active" data-view="launcher">Launcher</a>
+            <a href="#" data-view="store">Loja</a>
+            <a href="/seeds/">Seeds</a>
+            <a href="/src/">Código</a>
+        </nav>
+        <span class="spacer"></span>
+        <span class="mono-line" id="nodeInfo">daemon: <span id="healthDot" style="color:var(--fg-subtle)">…</span></span>
+    </header>
+
+    <div class="wrap">
+
+        <!-- ══ LAUNCHER ══ -->
+        <section class="view active" id="view-launcher">
+            <div class="stats" id="statsRow"></div>
+
+            <div class="card" style="margin-bottom:20px;">
+                <div class="box-head">
+                    <h2>Jogos instalados</h2>
+                    <button class="btn" onclick="loadCaps(); loadGames();">↻ Atualizar</button>
+                </div>
+                <div class="box-body">
+                    <div class="games" id="gamesGrid"><div class="empty">A carregar catálogo…</div></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="box-head">
+                    <h2>Processos em execução</h2>
+                    <button class="btn" onclick="loadProcesses()">↻</button>
+                </div>
+                <div class="box-body" id="processList"><div class="empty">Nenhum emulador a correr.</div></div>
+            </div>
+        </section>
+
+        <!-- ══ STORE ══ -->
+        <section class="view" id="view-store">
+            <div class="card">
+                <div class="box-head">
+                    <h2>Loja Mycelium — catálogo P2P</h2>
+                    <button class="btn" onclick="loadGames()">↻</button>
+                </div>
+                <div class="box-body">
+                    <div class="games" id="storeGrid"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ══ TERMINAL (QEMU) ══ -->
+        <section class="view" id="view-terminal">
+            <div class="card">
+                <div class="box-head">
+                    <h2 id="termTitle">Terminal</h2>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn danger" onclick="stopCurrent()">⏹ Parar</button>
+                        <button class="btn" onclick="showView('launcher')">← Voltar</button>
+                    </div>
+                </div>
+                <div class="box-body">
+                    <div class="terminal" id="termOut"></div>
+                    <div class="term-input">
+                        <input id="termIn" placeholder="Escreve aqui e carrega Enter para enviar ao processo (QEMU serial)…"
+                               autocomplete="off" spellcheck="false">
+                        <button class="btn primary" onclick="sendTerm()">Enviar</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const API = '/api/store';
+        const PE = '/api/store/processes';
+        let caps = null;
+        let spores = [];
+        let procs = [];
+        let currentProc = null;       // processo no terminal
+        let termTimer = null;
+
+        function $(id) { return document.getElementById(id); }
+        function toast(msg) {
+            const t = $('toast'); t.textContent = msg; t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2400);
+        }
+
+        // ── Navegação ──────────────────────────────────────
+        document.querySelectorAll('.nav a').forEach(a => {
+            a.addEventListener('click', e => {
+                const v = a.dataset.view;
+                if (!v) return; // /seeds/ e /src/ são páginas próprias
+                e.preventDefault();
+                showView(v);
+            });
+        });
+        function showView(v) {
+            document.querySelectorAll('.view').forEach(s => s.classList.remove('active'));
+            $('view-' + v).classList.add('active');
+            document.querySelectorAll('.nav a').forEach(a =>
+                a.classList.toggle('active', a.dataset.view === v));
+            if (v === 'launcher') { loadProcesses(); }
+            if (v === 'store') { loadGames(); }
+        }
+
+        // ── Capacidades ────────────────────────────────────
+        const platformNames = {
+            SNES: 'SNES', NES: 'NES', N64: 'N64', GameBoyAdvance: 'GBA', MegaDrive: 'Mega Drive',
+            SegaSaturn: 'Saturn', Dreamcast: 'Dreamcast', PlayStation1: 'PS1', PlayStation2: 'PS2',
+            ArcadeMame: 'Arcade', NeoGeo: 'NeoGeo', MSDOS: 'MS-DOS', Windows95: 'Win95',
+            Windows98: 'Win98', WindowsXP: 'WinXP', PowerPCMac: 'PowerPC', Amiga: 'Amiga',
+            SunOSSPARC: 'SPARC', NativeSystem: 'Native'
+        };
+        function engineLabel(s) {
+            const m = s.execution_matrix;
+            const names = { QEMU: 'QEMU', MAME: 'MAME', RetroArchLibretro: 'RetroArch',
+                Native: 'Native', WebAssembly: 'WASM', P2PCloudStream: 'P2P Stream' };
+            let l = names[m.recommended] || m.recommended;
+            if (m.libretro_core) l += ' (' + m.libretro_core + ')';
+            if (m.qemu_config) l += ' [' + m.qemu_config.arch + ']';
+            return l;
+        }
+        function engineChip(s) {
+            const m = s.execution_matrix;
+            const cls = { QEMU: 'qemu', MAME: 'mame', RetroArchLibretro: 'retroarch' };
+            return '<span class="chip engine ' + (cls[m.recommended] || '') + '">' + engineLabel(s) + '</span>';
+        }
+        const licenseLabels = {
+            shareware: 'Shareware', freeware: 'Freeware', open_source: 'Open Source',
+            public_domain: 'Domínio Público', proprietary: 'Copyright'
+        };
+        function licenseChip(s) {
+            const key = s.license || 'proprietary';
+            const cls = key === 'proprietary' ? 'no' : 'ok';
+            return '<span class="chip license ' + cls + '">© ' + (licenseLabels[key] || key) + '</span>';
+        }
+
+        async function loadCaps() {
+            try {
+                const r = await fetch(API + '/capabilities');
+                if (r.ok) caps = await r.json();
+            } catch (e) { caps = null; }
+            const q = caps && caps.has_qemu || {};
+            const qemuOk = Object.entries(q).filter(([,v]) => v).length;
+            const qemuTotal = Object.keys(q).length;
+            const ra = caps && caps.has_retroarch;
+            const mame = caps && caps.has_mame;
+            const bwrap = caps && caps.has_bwrap_sandbox;
+            const cores = caps && caps.available_libretro_cores || [];
+            $('statsRow').innerHTML = `
+                <div class="stat"><div class="label">QEMU</div>
+                    <div class="value ${qemuOk>0?'ok':'no'}">${qemuOk}/${qemuTotal} ${qemuOk>0?'✓':'✗'}</div></div>
+                <div class="stat"><div class="label">MAME</div>
+                    <div class="value ${mame?'ok':'no'}">${mame?'Disponível ✓':'Ausente ✗'}</div></div>
+                <div class="stat"><div class="label">RetroArch</div>
+                    <div class="value ${ra?'ok':'no'}">${ra?'Disponível ✓':'Ausente ✗'}</div></div>
+                <div class="stat"><div class="label">Cores Libretro</div>
+                    <div class="value ${cores.length?'warn':'no'}">${cores.length || '0'}</div></div>
+                <div class="stat"><div class="label">Sandbox bwrap</div>
+                    <div class="value ${bwrap?'ok':'no'}">${bwrap?'✓':'✗'}</div></div>`;
+        }
+
+        // ── Jogos ──────────────────────────────────────────
+        async function loadGames() {
+            try {
+                const r = await fetch(API + '/spores');
+                if (r.ok) spores = await r.json();
+            } catch (e) { spores = []; }
+            renderGames();
+        }
+
+        function gameCard(s) {
+            const plat = platformNames[s.platform] || s.platform;
+            const cover = s.cover_image_url
+                ? `<img src="${s.cover_image_url}" style="width:100%;height:90px;object-fit:cover;border-radius:4px;border:1px solid var(--border-muted);" onerror="this.style.display='none'">`
+                : '';
+            return `
+                <div class="game">
+                    ${cover}
+                    <div>
+                        <div class="title">${s.title}</div>
+                        <div class="desc">${s.description || ''}</div>
+                    </div>
+                    <div class="meta">
+                        <span class="chip platform">${plat}</span>
+                        ${engineChip(s)}
+                        ${licenseChip(s)}
+                        <span class="chip">${s.release_year}</span>
+                    </div>
+                    <div class="actions">
+                        <button class="btn primary" onclick="play('${s.id}')">▶ Jogar</button>
+                        ${s.execution_matrix.recommended === 'QEMU'
+                            ? `<button class="btn" onclick="play('${s.id}', true)">▦ Terminal</button>` : ''}
+                    </div>
+                </div>`;
+        }
+
+        function renderGames() {
+            const list = spores.map(gameCard).join('');
+            $('gamesGrid').innerHTML = list || '<div class="empty">Nenhum jogo instalado.</div>';
+            $('storeGrid').innerHTML = list || '<div class="empty">Catálogo vazio — inicia o daemon.</div>';
+        }
+
+        // ── Launch ─────────────────────────────────────────
+        async function play(id, terminal) {
+            try {
+                const r = await fetch(`${API}/spores/${id}/launch`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'launched') {
+                    toast(`▶ ${d.message} ${terminal ? '(terminal)' : ''}`);
+                    if (d.mode === 'terminal-web' || terminal) {
+                        openTerminal(d.process_id, id, d.mode === 'terminal-web');
+                    }
+                    loadProcesses();
+                } else {
+                    toast('⚠ ' + (d.message || 'falha ao lançar'));
+                }
+            } catch (e) { toast('Erro: ' + e.message); }
+        }
+
+        // ── Processos ──────────────────────────────────────
+        async function loadProcesses() {
+            try {
+                const r = await fetch(PE);
+                if (r.ok) { const d = await r.json(); procs = d.processes || []; }
+            } catch (e) { procs = []; }
+            const el = $('processList');
+            if (!procs.length) {
+                el.innerHTML = '<div class="empty">Nenhum emulador a correr.</div>';
+                return;
+            }
+            el.innerHTML = procs.map(p => `
+                <div class="proc">
+                    <span class="state ${p.status}"></span>
+                    <div class="info">
+                        <div class="name">${p.label}</div>
+                        <div class="sub mono">pid ${p.pid} · ${p.engine} · ${fmtTime(p.started_at)}${p.status!=='running' ? ' · ' + p.status : ''}</div>
+                    </div>
+                    <button class="btn" onclick="openTerminal(${p.id}, '${p.spore_id}', true)">▦ Console</button>
+                    <button class="btn danger" onclick="stop(${p.id})">⏹</button>
+                </div>`).join('');
+        }
+
+        function fmtTime(ms) {
+            const d = new Date(ms); const now = Date.now();
+            const s = Math.max(0, Math.floor((now - ms) / 1000));
+            return s < 5 ? 'agora' : s + 's';
+        }
+
+        async function stop(id) {
+            try {
+                await fetch(`${PE}/${id}/stop`, { method: 'POST' });
+                if (currentProc === id) { closeTerminal(); }
+                toast('⏹ Processo parado');
+                loadProcesses();
+            } catch (e) { toast('Erro: ' + e.message); }
+        }
+
+        // ── Terminal (QEMU) ────────────────────────────────
+        function openTerminal(id, sporeId, isQemu) {
+            currentProc = id;
+            $('termOut').textContent = '';
+            $('termTitle').textContent = 'Console · ' + sporeId + ' ' + (isQemu ? '(QEMU serial)' : '');
+            showView('terminal');
+            if (termTimer) clearInterval(termTimer);
+            pollTerm();
+            termTimer = setInterval(pollTerm, 900);
+            $('termIn').focus();
+        }
+        function closeTerminal() {
+            currentProc = null;
+            if (termTimer) { clearInterval(termTimer); termTimer = null; }
+        }
+        async function pollTerm() {
+            if (currentProc === null) return;
+            try {
+                const r = await fetch(`${PE}/${currentProc}/output`);
+                if (!r.ok) { closeTerminal(); return; }
+                const d = await r.json();
+                const t = $('termOut');
+                if (d.output) {
+                    t.textContent += d.output;
+                    t.scrollTop = t.scrollHeight;
+                }
+                if (d.status !== 'running') {
+                    t.textContent += '\n\n[processo ' + d.status + ']';
+                    closeTerminal();
+                    loadProcesses();
+                }
+            } catch (e) { /* daemon pode ter caído */ }
+        }
+        async function sendTerm() {
+            if (currentProc === null) return;
+            const inp = $('termIn');
+            const val = inp.value;
+            if (!val) return;
+            try {
+                await fetch(`${PE}/${currentProc}/input`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ input: val + '\n' })
+                });
+            } catch (e) { toast('Erro: ' + e.message); }
+            inp.value = '';
+        }
+        $('termIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendTerm(); } });
+        function stopCurrent() { if (currentProc !== null) stop(currentProc); }
+
+        // ── init ───────────────────────────────────────────
+        (async function init() {
+            $('healthDot').textContent = '…';
+            try {
+                const r = await fetch('/health');
+                $('healthDot').textContent = r.ok ? 'online' : 'offline';
+                $('healthDot').style.color = r.ok ? 'var(--green)' : 'var(--red)';
+            } catch (e) {
+                $('healthDot').textContent = 'offline';
+                $('healthDot').style.color = 'var(--red)';
+            }
+            await loadCaps();
+            await loadGames();
+            loadProcesses();
+            setInterval(() => { if (!currentProc) loadProcesses(); }, 3000);
+        })();
+    </script>
+</body>
+</html>

@@ -86,6 +86,77 @@ pub enum Request {
     },
     /// Mostra zonas de crescimento.
     Zones,
+    /// Lista todos os spores do catálogo da Mycelium Store.
+    StoreList,
+    /// Detecta capacidades de emulação do host (QEMU, MAME, RetroArch, bwrap).
+    StoreCaps,
+    /// Lança um spore por ID via control socket.
+    StoreLaunch {
+        id: String,
+        engine: Option<String>,
+        sandbox: bool,
+    },
+    /// Publica um novo spore no SporeBank (deposit + index).
+    StorePublish {
+        id: String,
+        title: String,
+        platform: String,
+    },
+    /// Publica uma árvore de código (repo) como Plot multi-leaf no SporeBank.
+    RepoPublish {
+        message: String,
+        leaves: Vec<giggs::Leaf>,
+    },
+    /// Reconstrói uma árvore de código a partir de um ContentId.
+    RepoClone {
+        cid: String,
+    },
+    /// Transfere nutrientes assinados (Micelial Value Layer).
+    Transfer {
+        /// GhostID pubkey x-only hex (64 chars) do recebedor.
+        to: String,
+        amount: u64,
+        /// atp | enzymes | mycelia | spores | resilience
+        nutrient: String,
+        /// consumption | seeding | compute | relay | equity | royalty | revenue
+        kind: String,
+        memo: String,
+        asset: Option<String>,
+    },
+    /// Saldos, histórico e transferências recentes do ledger local.
+    LedgerInfo,
+    /// Regista um ativo físico / empresa com cotas (RWA, Fase 3/4).
+    AssetRegister {
+        id: String,
+        name: String,
+        kind: String,
+        description: String,
+        location: Option<String>,
+        shares_total: u64,
+        price_per_share: u64,
+    },
+    /// Lista ativos registados.
+    AssetList,
+    /// Mostra cotas de um ativo.
+    AssetShares {
+        id: String,
+    },
+    /// Transfere cotas de um ativo para outro holder.
+    AssetTransfer {
+        asset: String,
+        shares: u64,
+        to: String,
+    },
+    /// Regista uma empresa/cooperativa com cotas (Fase 4).
+    CompanyRegister {
+        name: String,
+        shares_total: u64,
+    },
+    /// Distribui dividendo (Revenue) proporcional às cotas.
+    CompanyPayout {
+        name: String,
+        total: u64,
+    },
     Shutdown,
 }
 
@@ -96,6 +167,42 @@ pub enum Response {
     Ok { message: String },
     Status(Box<StatusReport>),
     Err { message: String },
+    StoreList { spores: Vec<mycelium_store::SoftwareSpore> },
+    StoreCaps { caps: mycelium_store::SystemCapabilities },
+    StoreLaunched {
+        spore_id: String,
+        engine: String,
+        message: String,
+    },
+    RepoPublished {
+        cid: String,
+        leaves: usize,
+        bytes: usize,
+    },
+    RepoCloneResult {
+        message: String,
+        leaves: Vec<giggs::Leaf>,
+    },
+    TransferResult {
+        tx_id: String,
+        kind: String,
+        nutrient: String,
+        amount: u64,
+        to: String,
+    },
+    LedgerReport {
+        pubkey: String,
+        balances: std::collections::HashMap<mycelium_core::Nutrient, u64>,
+        history: Vec<mycelium_nutrients::Exchange>,
+        transfers: Vec<mycelium_nutrients::SignedTransfer>,
+    },
+    AssetListResult {
+        assets: Vec<crate::assets::AssetRecord>,
+    },
+    AssetSharesResult {
+        asset: String,
+        holdings: Vec<crate::assets::ShareHolding>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

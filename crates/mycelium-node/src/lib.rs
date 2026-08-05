@@ -4,9 +4,12 @@
 //! TheField, Inertia, Vacuum e Plasma — com estado em disco e plano de
 //! controle via Unix socket.
 
+mod assets;
 mod control;
 mod organism;
 mod protocol;
+mod seeds_ion;
+mod src_ion;
 mod store;
 
 pub use control::{call, serve, Request, Response, StatusReport};

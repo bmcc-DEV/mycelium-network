@@ -15,6 +15,7 @@ mod relay_mesh;
 mod store_forward;
 #[cfg(feature = "pqc-transport")]
 pub mod pqc;
+pub mod seed_catalog;
 mod webrtc_ice;
 
 pub use membrane::{default_listen_addrs, seed_dial_rank};
@@ -25,6 +26,7 @@ pub use seeds::{
     split_membrane_suffix, with_membrane_flag, SeedBook, DEFAULT_BOOTSTRAP_URL,
     DEFAULT_DNS_SEED_NAME,
 };
+pub use seed_catalog::{SeedCatalog, SeedEntry, SeedVisibility};
 pub use relay_mesh::{
     RelayAdvertisement, RelayHealth, RelayMesh, RELAY_DHT_PREFIX, RELAY_MESH_TOPIC,
 };
